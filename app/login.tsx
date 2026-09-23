@@ -22,8 +22,20 @@ type RegisterErrors = {
   confirmPassword?: string;
 };
 
+// Turns an identifier into a readable display name when we have no
+// registered name on file for it (e.g. logging in without registering first).
+function fallbackDisplayName(identifier: string, role: "student" | "faculty") {
+  if (role === "student") {
+    return identifier ? `Student ${identifier}` : "Trailblazer";
+  }
+  const local = identifier.split("@")[0] || identifier;
+  const parts = local.split(/[._-]/).filter(Boolean);
+  if (parts.length === 0) return "Trailblazer";
+  return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(" ");
+}
+
 export default function LoginScreen() {
-  const { login } = useAuth();
+  const { login, registerUser, getRegisteredName } = useAuth();
   const [role, setRole] = useState<"student" | "faculty">("student");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -101,7 +113,8 @@ export default function LoginScreen() {
     if (Object.keys(errors).length > 0) return;
 
     console.log("Logging in with", email, "Role:", role, "Remember device:", rememberDevice);
-    login();
+    const name = getRegisteredName(email) ?? fallbackDisplayName(email, role);
+    login({ name, identifier: email, role });
     router.replace((role === "faculty" ? "/desk-admin" : "/(tabs)") as never);
   };
 
@@ -227,6 +240,7 @@ export default function LoginScreen() {
     setTimeout(() => {
       setRegisterLoading(false);
       console.log("Registering", { name: registerName, identifier: registerIdentifier, role: registerRole });
+      registerUser(registerIdentifier, registerName);
       setRegisterStep("success");
     }, 900);
   };
