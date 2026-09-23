@@ -102,7 +102,7 @@ export default function LoginScreen() {
 
     console.log("Logging in with", email, "Role:", role, "Remember device:", rememberDevice);
     login();
-    router.replace("/(tabs)");
+    router.replace((role === "faculty" ? "/desk-admin" : "/(tabs)") as never);
   };
 
   // --- Forgot password handlers ---
