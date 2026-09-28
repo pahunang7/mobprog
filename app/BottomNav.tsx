@@ -1,3 +1,4 @@
+import { useClaims } from "@/contexts/claims-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -5,9 +6,11 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 type NavKey = "feed" | "report" | "claims";
 
 export default function BottomNav({ active }: { active: NavKey }) {
+  const { claims } = useClaims();
+
   return (
     <View style={styles.bottomNav}>
-      <Pressable style={styles.bottomNavItem} onPress={() => router.push("/(tabs)" as never)}>
+      <Pressable style={styles.bottomNavItem} onPress={() => router.navigate("/(tabs)" as never)}>
         <Ionicons name={active === "feed" ? "document-text" : "document-text-outline"} size={20} color={active === "feed" ? "#f97316" : "#888"} />
         <Text style={active === "feed" ? styles.bottomNavLabelActive : styles.bottomNavLabel}>Feed</Text>
       </Pressable>
@@ -17,10 +20,17 @@ export default function BottomNav({ active }: { active: NavKey }) {
         <Text style={active === "report" ? styles.bottomNavLabelActive : styles.bottomNavLabel}>Report</Text>
       </Pressable>
 
-      <View style={styles.bottomNavItem}>
-        <Ionicons name={active === "claims" ? "shield" : "shield-outline"} size={20} color={active === "claims" ? "#f97316" : "#888"} />
+      <Pressable style={styles.bottomNavItem} onPress={() => router.navigate("/my-claims" as never)}>
+        <View>
+          <Ionicons name={active === "claims" ? "shield" : "shield-outline"} size={20} color={active === "claims" ? "#f97316" : "#888"} />
+          {claims.length > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{claims.length}</Text>
+            </View>
+          )}
+        </View>
         <Text style={active === "claims" ? styles.bottomNavLabelActive : styles.bottomNavLabel}>My Claims</Text>
-      </View>
+      </Pressable>
     </View>
   );
 }
@@ -37,4 +47,17 @@ const styles = StyleSheet.create({
   bottomNavItem: { flex: 1, alignItems: "center", gap: 3 },
   bottomNavLabel: { fontSize: 10, color: "#888" },
   bottomNavLabelActive: { fontSize: 10, color: "#f97316", fontWeight: "700" },
+  badge: {
+    position: "absolute",
+    top: -4,
+    right: -9,
+    minWidth: 15,
+    height: 15,
+    borderRadius: 8,
+    paddingHorizontal: 3,
+    backgroundColor: "#f97316",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  badgeText: { color: "#fff", fontSize: 9, fontWeight: "700" },
 });

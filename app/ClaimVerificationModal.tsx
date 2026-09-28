@@ -1,3 +1,4 @@
+import { useClaims } from "@/contexts/claims-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useMemo, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
@@ -23,6 +24,7 @@ type Props = {
 };
 
 export default function ClaimVerificationModal({ visible, item, onClose, onSubmitted }: Props) {
+  const { addClaim } = useClaims();
   const [studentId, setStudentId] = useState("");
   const [ownership, setOwnership] = useState("");
   const [proofName, setProofName] = useState<string | null>(null);
@@ -84,6 +86,9 @@ export default function ClaimVerificationModal({ visible, item, onClose, onSubmi
       console.log("Submitting claim", { itemId: item.id, itemTitle: item.title, studentId, ownership, proofName });
       setSubmitting(false);
       setSubmitted(true);
+
+      // Save the claim so it shows up in the "My Claims" tab
+      addClaim({ id: item.id, title: item.title, code: item.code, deskLabel: item.deskLabel }, { studentId: studentId.trim(), ownership: ownership.trim(), proofName });
       onSubmitted?.(item.id);
 
       // Let the "Submitted" state show briefly, then close the modal.

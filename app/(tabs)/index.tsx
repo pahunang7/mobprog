@@ -1,8 +1,9 @@
 import { useAuth } from "@/contexts/auth-context";
+import { useClaims } from "@/contexts/claims-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useMemo, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import BottomNav from "../BottomNav";
 import ClaimVerificationModal, { ClaimItem } from "../ClaimVerificationModal";
 import { INITIAL_NOTIFICATIONS, NotificationItem } from "../notifications-data";
@@ -18,6 +19,7 @@ function initialsFor(name: string) {
 
 export default function HomeScreen() {
   const { user } = useAuth();
+  const { hasClaimed } = useClaims();
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<"all" | CategoryKey>("all");
   const [claimModalVisible, setClaimModalVisible] = useState(false);
@@ -25,7 +27,7 @@ export default function HomeScreen() {
   const [notifVisible, setNotifVisible] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
 
-  const activeCount = REGISTRY_ITEMS.filter((i) => i.status === "pending").length;
+  const activeCount = REGISTRY_ITEMS.filter((i) => i.status === "pending" && !hasClaimed(i.id)).length;
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   const displayName = user?.name ?? "Trailblazer";
@@ -43,7 +45,7 @@ export default function HomeScreen() {
   }, [search, activeCategory]);
 
   const openClaimModal = (item: RegistryItem) => {
-    setClaimItem({ id: item.id, title: item.title });
+    setClaimItem({ id: item.id, title: item.title, code: `Item #${item.id}`, deskLabel: "Security Desk" });
     setClaimModalVisible(true);
   };
 
@@ -74,7 +76,7 @@ export default function HomeScreen() {
             <Ionicons name="notifications-outline" size={20} color="#111" />
             {unreadCount > 0 && <View style={styles.notifDot} />}
           </Pressable>
-          <Pressable style={styles.iconButton}>
+          <Pressable style={styles.iconButton} onPress={() => router.push("/profile" as never)} hitSlop={8}>
             <Ionicons name="person-circle-outline" size={24} color="#111" />
           </Pressable>
         </View>
@@ -110,9 +112,7 @@ export default function HomeScreen() {
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Greeting card */}
         <View style={styles.greetingCard}>
-          <View style={styles.avatarCircle}>
-            <Text style={styles.avatarText}>{avatarInitials}</Text>
-          </View>
+          <View style={styles.avatarCircle}>{user?.photoUri ? <Image source={{ uri: user.photoUri }} style={styles.avatarPhoto} /> : <Text style={styles.avatarText}>{avatarInitials}</Text>}</View>
           <View style={styles.greetingTextWrap}>
             <View style={styles.greetingRow}>
               <Text style={styles.greetingTitle}>Hello, {firstName}!</Text>
@@ -216,7 +216,7 @@ export default function HomeScreen() {
                   <View style={styles.itemStatusRow}>
                     <View style={[styles.statusPill, item.status === "claimed" ? styles.statusPillClaimed : styles.statusPillPending]}>
                       <Text style={[styles.statusPillText, item.status === "claimed" ? styles.statusPillTextClaimed : styles.statusPillTextPending]}>
-                        {item.status === "claimed" ? "Claimed" : "Pending"}
+                        {item.status === "claimed" ? "Claimed" : hasClaimed(item.id) ? "Under review" : "Pending"}
                       </Text>
                     </View>
                     <Ionicons name="time-outline" size={11} color="#999" />
@@ -237,6 +237,11 @@ export default function HomeScreen() {
                 {item.status === "claimed" ? (
                   <View style={styles.caseClosedButton}>
                     <Text style={styles.caseClosedButtonText}>Case Closed</Text>
+                  </View>
+                ) : hasClaimed(item.id) ? (
+                  <View style={styles.claimSentButton}>
+                    <Ionicons name="checkmark-circle" size={13} color="#15803d" />
+                    <Text style={styles.claimSentButtonText}>Claim Sent</Text>
                   </View>
                 ) : (
                   <Pressable style={styles.claimButton} onPress={() => openClaimModal(item)}>
@@ -372,7 +377,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#1e293b",
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
   },
+  avatarPhoto: { width: 44, height: 44 },
   avatarText: { color: "#fff", fontWeight: "700", fontSize: 14 },
   greetingTextWrap: { flex: 1 },
   greetingRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 },
@@ -517,6 +524,16 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   caseClosedButtonText: { color: "#94a3b8", fontSize: 11, fontWeight: "700" },
+  claimSentButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#dcfce7",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  claimSentButtonText: { color: "#15803d", fontSize: 11, fontWeight: "700" },
 
   footerNotice: { alignItems: "center", gap: 4, marginTop: 22, paddingHorizontal: 10 },
   footerNoticeTitle: { fontSize: 10, fontWeight: "700", color: "#334155", letterSpacing: 0.3, marginTop: 4, textAlign: "center" },

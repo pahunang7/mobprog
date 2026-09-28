@@ -22,6 +22,66 @@ type RegisterErrors = {
   confirmPassword?: string;
 };
 
+// ---------- Validation helpers ----------
+
+const PASSWORD_HINT = "8+ characters with uppercase, lowercase and a number. No special characters.";
+const PASSWORD_SPECIAL_MSG = "Only letters and numbers are allowed (no special characters or spaces).";
+
+// Local part (before @): letters/numbers, with single . _ - between them
+const EMAIL_LOCAL_PATTERN = /^[A-Za-z0-9]+([._-][A-Za-z0-9]+)*$/;
+
+// Lenient email check used for Log In and Create Account (strict version is only for Reset Password)
+function basicEmailError(value: string): string | undefined {
+  if (!value.trim()) return "Institutional email is required.";
+  if (!value.includes("@")) return "Enter a valid email address.";
+  if (!value.toLowerCase().endsWith("@ustp.edu.ph")) return "Use your @ustp.edu.ph email.";
+  return undefined;
+}
+
+// Live check while typing: flags characters that can never be valid in a USTP email
+function liveEmailError(value: string): string | undefined {
+  if (/\s/.test(value)) return "Email can't contain spaces.";
+  const bad = value.match(/[^A-Za-z0-9._@-]/g);
+  if (bad) return `Special characters not allowed: ${Array.from(new Set(bad)).join(" ")}`;
+  return undefined;
+}
+
+// Full check on submit
+function emailError(value: string): string | undefined {
+  const v = value.trim();
+  if (!v) return "Institutional email is required.";
+  if (/\s/.test(v)) return "Email can't contain spaces.";
+
+  const atCount = v.split("@").length - 1;
+  if (atCount === 0) return "Enter a valid email address.";
+  if (atCount > 1) return "Email can only contain one @ symbol.";
+
+  const [local, domain] = v.split("@");
+  if (!local) return "Enter the part before @ustp.edu.ph.";
+
+  const bad = local.match(/[^A-Za-z0-9._-]/g);
+  if (bad) return `Special characters not allowed: ${Array.from(new Set(bad)).join(" ")}`;
+  if (!EMAIL_LOCAL_PATTERN.test(local)) return "Don't start, end, or repeat . _ - in your email.";
+  if (domain.toLowerCase() !== "ustp.edu.ph") return "Use your @ustp.edu.ph email.";
+  return undefined;
+}
+
+// Live check while typing a password
+function livePasswordError(value: string): string | undefined {
+  return /[^A-Za-z0-9]/.test(value) ? PASSWORD_SPECIAL_MSG : undefined;
+}
+
+// Full check on submit
+function passwordError(pw: string): string | undefined {
+  if (!pw) return "Password is required.";
+  if (/[^A-Za-z0-9]/.test(pw)) return PASSWORD_SPECIAL_MSG;
+  if (pw.length < 8) return `Must be at least 8 characters (${pw.length}/8).`;
+  if (!/[A-Z]/.test(pw)) return "Add at least one uppercase letter.";
+  if (!/[a-z]/.test(pw)) return "Add at least one lowercase letter.";
+  if (!/[0-9]/.test(pw)) return "Add at least one number.";
+  return undefined;
+}
+
 // Turns an identifier into a readable display name when we have no
 // registered name on file for it (e.g. logging in without registering first).
 function fallbackDisplayName(identifier: string, role: "student" | "faculty") {
@@ -42,6 +102,7 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [rememberDevice, setRememberDevice] = useState(true);
   const [loginErrors, setLoginErrors] = useState<LoginErrors>({});
+  const [capsOn, setCapsOn] = useState(false);
 
   // --- Forgot password modal state ---
   const [forgotVisible, setForgotVisible] = useState(false);
@@ -68,6 +129,20 @@ export default function LoginScreen() {
   const isStudent = role === "student";
   const isRegisterStudent = registerRole === "student";
 
+  // Caps Lock detection (works on web; on phones the keyboard shows its own caps state)
+  const checkCaps = (e: any) => {
+    const ne = e?.nativeEvent;
+    if (ne && typeof ne.getModifierState === "function") setCapsOn(ne.getModifierState("CapsLock"));
+  };
+  const capsProps = { onKeyPress: checkCaps, onBlur: () => setCapsOn(false) };
+
+  const CapsWarning = () => (
+    <View style={styles.capsRow}>
+      <Ionicons name="warning-outline" size={13} color="#b45309" />
+      <Text style={styles.capsText}>Caps Lock is on</Text>
+    </View>
+  );
+
   const handleRoleChange = (newRole: "student" | "faculty") => {
     setRole(newRole);
     setEmail(""); // clear the field so old input format doesn't carry over
@@ -88,21 +163,16 @@ export default function LoginScreen() {
   const validateLogin = (): LoginErrors => {
     const errors: LoginErrors = {};
 
-    if (!email.trim()) {
-      errors.identifier = isStudent ? "Student ID is required." : "Institutional email is required.";
-    } else if (isStudent && email.length !== 10) {
-      errors.identifier = `Student ID must be 10 digits (${email.length}/10).`;
-    } else if (!isStudent && !email.includes("@")) {
-      errors.identifier = "Enter a valid email address.";
-    } else if (!isStudent && !email.toLowerCase().endsWith("@ustp.edu.ph")) {
-      errors.identifier = "Use your @ustp.edu.ph email.";
+    if (isStudent) {
+      if (!email.trim()) errors.identifier = "Student ID is required.";
+      else if (email.length !== 10) errors.identifier = `Student ID must be 10 digits (${email.length}/10).`;
+    } else {
+      const err = basicEmailError(email);
+      if (err) errors.identifier = err;
     }
 
-    if (!password) {
-      errors.password = "Password is required.";
-    } else if (password.length < 8) {
-      errors.password = `Must be at least 8 characters (${password.length}/8).`;
-    }
+    // Only require a password at login - the account owner knows what it is
+    if (!password) errors.password = "Password is required.";
 
     return errors;
   };
@@ -136,21 +206,16 @@ export default function LoginScreen() {
   const validateReset = (): ResetErrors => {
     const errors: ResetErrors = {};
 
-    if (!resetIdentifier.trim()) {
-      errors.identifier = isStudent ? "Student ID is required." : "Institutional email is required.";
-    } else if (isStudent && resetIdentifier.length !== 10) {
-      errors.identifier = `Student ID must be 10 digits (${resetIdentifier.length}/10).`;
-    } else if (!isStudent && !resetIdentifier.includes("@")) {
-      errors.identifier = "Enter a valid email address.";
-    } else if (!isStudent && !resetIdentifier.toLowerCase().endsWith("@ustp.edu.ph")) {
-      errors.identifier = "Use your @ustp.edu.ph email.";
+    if (isStudent) {
+      if (!resetIdentifier.trim()) errors.identifier = "Student ID is required.";
+      else if (resetIdentifier.length !== 10) errors.identifier = `Student ID must be 10 digits (${resetIdentifier.length}/10).`;
+    } else {
+      const err = emailError(resetIdentifier);
+      if (err) errors.identifier = err;
     }
 
-    if (!newPassword) {
-      errors.newPassword = "New password is required.";
-    } else if (newPassword.length < 8) {
-      errors.newPassword = `Must be at least 8 characters (${newPassword.length}/8).`;
-    }
+    const pwErr = passwordError(newPassword);
+    if (pwErr) errors.newPassword = pwErr;
 
     if (!confirmPassword) {
       errors.confirmPassword = "Please confirm your new password.";
@@ -205,21 +270,16 @@ export default function LoginScreen() {
       errors.name = "Full name is required.";
     }
 
-    if (!registerIdentifier.trim()) {
-      errors.identifier = isRegisterStudent ? "Student ID is required." : "Institutional email is required.";
-    } else if (isRegisterStudent && registerIdentifier.length !== 10) {
-      errors.identifier = `Student ID must be 10 digits (${registerIdentifier.length}/10).`;
-    } else if (!isRegisterStudent && !registerIdentifier.includes("@")) {
-      errors.identifier = "Enter a valid email address.";
-    } else if (!isRegisterStudent && !registerIdentifier.toLowerCase().endsWith("@ustp.edu.ph")) {
-      errors.identifier = "Use your @ustp.edu.ph email.";
+    if (isRegisterStudent) {
+      if (!registerIdentifier.trim()) errors.identifier = "Student ID is required.";
+      else if (registerIdentifier.length !== 10) errors.identifier = `Student ID must be 10 digits (${registerIdentifier.length}/10).`;
+    } else {
+      const err = basicEmailError(registerIdentifier);
+      if (err) errors.identifier = err;
     }
 
-    if (!registerPassword) {
-      errors.password = "Password is required.";
-    } else if (registerPassword.length < 8) {
-      errors.password = `Must be at least 8 characters (${registerPassword.length}/8).`;
-    }
+    const pwErr = passwordError(registerPassword);
+    if (pwErr) errors.password = pwErr;
 
     if (!registerConfirmPassword) {
       errors.confirmPassword = "Please confirm your password.";
@@ -318,7 +378,7 @@ export default function LoginScreen() {
         </View>
         <View style={[styles.inputWrapper, loginErrors.password && styles.inputWrapperError]}>
           <Ionicons name="lock-closed-outline" size={18} color="#888" style={styles.inputIcon} />
-          <TextInput style={styles.input} placeholder="Enter your password" secureTextEntry={!showPassword} value={password} onChangeText={handlePasswordChange} />
+          <TextInput style={styles.input} placeholder="Enter your password" secureTextEntry={!showPassword} value={password} onChangeText={handlePasswordChange} {...capsProps} />
           <Pressable onPress={() => setShowPassword(!showPassword)}>
             <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={18} color="#888" />
           </Pressable>
@@ -328,6 +388,8 @@ export default function LoginScreen() {
             <Ionicons name="alert-circle" size={13} color="#dc2626" />
             <Text style={styles.warningText}>{loginErrors.password}</Text>
           </View>
+        ) : capsOn ? (
+          <CapsWarning />
         ) : (
           <View style={{ marginBottom: 6 }} />
         )}
@@ -405,8 +467,9 @@ export default function LoginScreen() {
                     maxLength={isStudent ? 10 : undefined}
                     value={resetIdentifier}
                     onChangeText={(t) => {
-                      setResetIdentifier(isStudent ? t.replace(/[^0-9]/g, "") : t);
-                      if (resetErrors.identifier) setResetErrors((prev) => ({ ...prev, identifier: undefined }));
+                      const next = isStudent ? t.replace(/[^0-9]/g, "") : t;
+                      setResetIdentifier(next);
+                      setResetErrors((prev) => ({ ...prev, identifier: isStudent ? undefined : liveEmailError(next) }));
                     }}
                   />
                 </View>
@@ -429,8 +492,9 @@ export default function LoginScreen() {
                     value={newPassword}
                     onChangeText={(t) => {
                       setNewPassword(t);
-                      if (resetErrors.newPassword) setResetErrors((prev) => ({ ...prev, newPassword: undefined }));
+                      setResetErrors((prev) => ({ ...prev, newPassword: livePasswordError(t) }));
                     }}
+                    {...capsProps}
                   />
                   <Pressable onPress={() => setShowNewPassword(!showNewPassword)}>
                     <Ionicons name={showNewPassword ? "eye-off-outline" : "eye-outline"} size={18} color="#888" />
@@ -441,8 +505,10 @@ export default function LoginScreen() {
                     <Ionicons name="alert-circle" size={13} color="#dc2626" />
                     <Text style={styles.warningText}>{resetErrors.newPassword}</Text>
                   </View>
+                ) : capsOn ? (
+                  <CapsWarning />
                 ) : (
-                  <Text style={styles.hintText}>Must be at least 8 characters.</Text>
+                  <Text style={styles.hintText}>{PASSWORD_HINT}</Text>
                 )}
 
                 <Text style={styles.label}>Confirm New Password</Text>
@@ -509,6 +575,7 @@ export default function LoginScreen() {
                       style={[styles.roleButton, isRegisterStudent && styles.roleButtonActive]}
                       onPress={() => {
                         setRegisterRole("student");
+                        setRegisterIdentifier("");
                         setRegisterErrors((prev) => ({ ...prev, identifier: undefined }));
                       }}
                     >
@@ -519,6 +586,7 @@ export default function LoginScreen() {
                       style={[styles.roleButton, !isRegisterStudent && styles.roleButtonActive]}
                       onPress={() => {
                         setRegisterRole("faculty");
+                        setRegisterIdentifier("");
                         setRegisterErrors((prev) => ({ ...prev, identifier: undefined }));
                       }}
                     >
@@ -581,8 +649,9 @@ export default function LoginScreen() {
                       value={registerPassword}
                       onChangeText={(t) => {
                         setRegisterPassword(t);
-                        if (registerErrors.password) setRegisterErrors((prev) => ({ ...prev, password: undefined }));
+                        setRegisterErrors((prev) => ({ ...prev, password: livePasswordError(t) }));
                       }}
+                      {...capsProps}
                     />
                     <Pressable onPress={() => setShowRegisterPassword(!showRegisterPassword)}>
                       <Ionicons name={showRegisterPassword ? "eye-off-outline" : "eye-outline"} size={18} color="#888" />
@@ -593,8 +662,10 @@ export default function LoginScreen() {
                       <Ionicons name="alert-circle" size={13} color="#dc2626" />
                       <Text style={styles.warningText}>{registerErrors.password}</Text>
                     </View>
+                  ) : capsOn ? (
+                    <CapsWarning />
                   ) : (
-                    <Text style={styles.hintText}>Must be at least 8 characters.</Text>
+                    <Text style={styles.hintText}>{PASSWORD_HINT}</Text>
                   )}
 
                   <Text style={styles.label}>Confirm Password</Text>
@@ -735,6 +806,14 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   warningText: { fontSize: 11, color: "#dc2626", flexShrink: 1 },
+  capsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: -8,
+    marginBottom: 10,
+  },
+  capsText: { fontSize: 11, color: "#b45309", fontWeight: "600" },
   hintText: { fontSize: 11, color: "#999", marginTop: -8, marginBottom: 10 },
 
   rememberRow: {

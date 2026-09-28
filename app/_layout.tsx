@@ -4,6 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import "react-native-reanimated";
 
 import { AuthProvider, useAuth } from "@/contexts/auth-context";
+import { ClaimsProvider } from "@/contexts/claims-context";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 
 export const unstable_settings = {
@@ -20,6 +21,8 @@ function RootLayoutNav() {
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false }} />
+        <Stack.Screen name="my-claims" options={{ headerShown: false, animation: "none" }} />
+        <Stack.Screen name="profile" options={{ headerShown: false }} />
         <Stack.Screen
           name="report-item"
           options={{
@@ -39,7 +42,9 @@ function RootLayoutNav() {
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <RootLayoutNav />
+      <ClaimsProvider>
+        <RootLayoutNav />
+      </ClaimsProvider>
     </AuthProvider>
   );
 }
