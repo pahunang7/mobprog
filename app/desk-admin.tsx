@@ -10,6 +10,71 @@ import { REGISTRY_ITEMS } from "./registry-data";
 type Tab = "pending" | "found" | "archive";
 type Confirm = { type: "approve" | "reject"; claim: Claim } | null;
 
+type AdminNotification = {
+  id: string;
+  title: string;
+  body: string;
+  timeAgo: string;
+  read: boolean;
+  iconName: keyof typeof Ionicons.glyphMap;
+  iconColor: string;
+  iconBg: string;
+};
+
+// Dummy notifications for the desk admin (replace with real data later)
+const INITIAL_ADMIN_NOTIFICATIONS: AdminNotification[] = [
+  {
+    id: "a1",
+    title: "New claim submitted",
+    body: "A student submitted a claim for Hydro Flask 32oz Mustard Yellow and is waiting for verification.",
+    timeAgo: "5 mins ago",
+    read: false,
+    iconName: "document-text-outline",
+    iconColor: "#f97316",
+    iconBg: "#ffedd5",
+  },
+  {
+    id: "a2",
+    title: "Proof of ownership uploaded",
+    body: "Ownership proof was attached to a pending claim. Review it before approving.",
+    timeAgo: "32 mins ago",
+    read: false,
+    iconName: "image-outline",
+    iconColor: "#1d4ed8",
+    iconBg: "#dbeafe",
+  },
+  {
+    id: "a3",
+    title: "Item turned in at Station #04",
+    body: "TI-84 Plus Graphing Calculator was handed in by campus security and logged as found.",
+    timeAgo: "1 hour ago",
+    read: false,
+    iconName: "cube-outline",
+    iconColor: "#16a34a",
+    iconBg: "#dcfce7",
+  },
+  {
+    id: "a4",
+    title: "Duplicate claim detected",
+    body: "Two students claimed the same item. Compare their ownership details before deciding.",
+    timeAgo: "3 hours ago",
+    read: true,
+    iconName: "alert-circle-outline",
+    iconColor: "#dc2626",
+    iconBg: "#fee2e2",
+  },
+  {
+    id: "a5",
+    title: "Weekly report ready",
+    body: "Lost and found activity for this week is ready: +12 lost, +18 found, 87% return rate.",
+    timeAgo: "Yesterday",
+    read: true,
+    iconName: "stats-chart-outline",
+    iconColor: "#475569",
+    iconBg: "#e2e8f0",
+  },
+];
+
 const claimKey = (c: Claim) => `${c.ownerId}:${c.id}`;
 const ticketCode = (id: string) => `#LF-${9000 + Number(id || 0)}`;
 
@@ -31,14 +96,17 @@ function titleCase(name: string) {
 }
 
 export default function DeskAdminScreen() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const { allClaims, reviewClaim } = useClaims();
   const [tab, setTab] = useState<Tab>("pending");
   const [search, setSearch] = useState("");
   const [proofClaim, setProofClaim] = useState<Claim | null>(null);
   const [confirm, setConfirm] = useState<Confirm>(null);
+  const [notifVisible, setNotifVisible] = useState(false);
+  const [notifications, setNotifications] = useState<AdminNotification[]>(INITIAL_ADMIN_NOTIFICATIONS);
 
   const officerName = user?.name ? titleCase(user.name) : "Desk Officer";
+  const unreadCount = notifications.filter((n) => !n.read).length;
 
   const pending = useMemo(() => allClaims.filter((c) => c.status === "Under review"), [allClaims]);
   const processed = useMemo(() => allClaims.filter((c) => c.status !== "Under review").sort((a, b) => (b.reviewedAt ?? 0) - (a.reviewedAt ?? 0)), [allClaims]);
@@ -58,9 +126,13 @@ export default function DeskAdminScreen() {
     setConfirm(null);
   };
 
-  const handleLogout = () => {
-    logout();
-    router.replace("/login" as never);
+  const toggleNotifPanel = () => {
+    setNotifVisible((v) => {
+      const next = !v;
+      // Mark everything read once the panel is opened
+      if (next) setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      return next;
+    });
   };
 
   return (
@@ -77,15 +149,42 @@ export default function DeskAdminScreen() {
           </View>
         </View>
         <View style={styles.headerRight}>
-          <View style={styles.iconButton}>
+          <Pressable style={styles.iconButton} onPress={toggleNotifPanel} hitSlop={8}>
             <Ionicons name="notifications-outline" size={20} color="#111" />
-            {pending.length > 0 && <View style={styles.notifDot} />}
-          </View>
+            {unreadCount > 0 && <View style={styles.notifDot} />}
+          </Pressable>
           <Pressable onPress={() => router.push("/profile" as never)} hitSlop={8}>
             <Ionicons name="person-circle-outline" size={24} color="#111" />
           </Pressable>
         </View>
       </View>
+
+      {/* Notification dropdown */}
+      <Modal visible={notifVisible} transparent animationType="fade" onRequestClose={() => setNotifVisible(false)}>
+        <Pressable style={styles.notifBackdrop} onPress={() => setNotifVisible(false)} />
+        <View style={styles.notifPanel}>
+          <View style={styles.notifPanelHeader}>
+            <Text style={styles.notifPanelTitle}>Notifications</Text>
+            <Pressable onPress={() => setNotifVisible(false)} hitSlop={10}>
+              <Ionicons name="close" size={18} color="#888" />
+            </Pressable>
+          </View>
+          <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false}>
+            {notifications.map((n) => (
+              <View key={n.id} style={styles.notifRow}>
+                <View style={[styles.notifIconCircle, { backgroundColor: n.iconBg }]}>
+                  <Ionicons name={n.iconName} size={16} color={n.iconColor} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.notifTitle}>{n.title}</Text>
+                  <Text style={styles.notifBody}>{n.body}</Text>
+                  <Text style={styles.notifTime}>{n.timeAgo}</Text>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      </Modal>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Officer card */}
@@ -299,16 +398,6 @@ export default function DeskAdminScreen() {
             )}
           </View>
         )}
-
-        {/* Session row */}
-        <View style={styles.sessionRow}>
-          <View style={styles.sessionDot} />
-          <Text style={styles.sessionText}>Session #04-Secured</Text>
-          <Pressable style={styles.logoutLink} onPress={handleLogout}>
-            <Ionicons name="log-out-outline" size={14} color="#dc2626" />
-            <Text style={styles.logoutText}>Log Out</Text>
-          </Pressable>
-        </View>
       </ScrollView>
 
       <BottomNav active="desk" />
@@ -398,6 +487,45 @@ const styles = StyleSheet.create({
   iconButton: { position: "relative" },
   notifDot: { position: "absolute", top: -1, right: -1, width: 7, height: 7, borderRadius: 4, backgroundColor: "#f97316" },
 
+  notifBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(15,15,25,0.35)" },
+  notifPanel: {
+    position: "absolute",
+    top: 58,
+    right: 14,
+    width: 300,
+    maxWidth: "88%",
+    backgroundColor: "#fff",
+    borderRadius: 14,
+    paddingVertical: 6,
+    shadowColor: "#000",
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
+  },
+  notifPanelHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f1f1",
+  },
+  notifPanelTitle: { fontSize: 13, fontWeight: "700", color: "#111" },
+  notifRow: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f6f6f6",
+  },
+  notifIconCircle: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
+  notifTitle: { fontSize: 12, fontWeight: "700", color: "#111" },
+  notifBody: { fontSize: 11, color: "#666", marginTop: 1, lineHeight: 15 },
+  notifTime: { fontSize: 10, color: "#aaa", marginTop: 3 },
+
   scrollContent: { padding: 16, paddingBottom: 24 },
 
   officerCard: {
@@ -476,12 +604,6 @@ const styles = StyleSheet.create({
   emptyBox: { alignItems: "center", gap: 6, paddingVertical: 36, paddingHorizontal: 20 },
   emptyTitle: { fontSize: 14, fontWeight: "700", color: "#334155" },
   emptyText: { fontSize: 12, color: "#94a3b8", textAlign: "center" },
-
-  sessionRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 24, marginBottom: 10, backgroundColor: "#fff", borderRadius: 12, padding: 12 },
-  sessionDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#16a34a" },
-  sessionText: { fontSize: 11, color: "#888" },
-  logoutLink: { marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 4 },
-  logoutText: { fontSize: 11, color: "#dc2626", fontWeight: "700" },
 
   dialogBackdrop: { flex: 1, backgroundColor: "rgba(15,15,25,0.55)", alignItems: "center", justifyContent: "center", padding: 24 },
   dialog: { width: "100%", maxWidth: 360, backgroundColor: "#fff", borderRadius: 16, padding: 18 },

@@ -364,14 +364,15 @@ export default function LoginScreen() {
           <Ionicons name={isStudent ? "briefcase-outline" : "mail-outline"} size={18} color="#888" style={styles.inputIcon} />
           <TextInput
             style={styles.input}
-            placeholder={isStudent ? "Enter Student ID" : "e.g. j.delacruz@ustp.edu.ph"}
+            placeholder={isStudent ? "e.g 2024-XXX-XXX" : "e.g. j.delacruz@ustp.edu.ph"}
+            placeholderTextColor="#888"
             keyboardType={isStudent ? "number-pad" : "email-address"}
             autoCapitalize="none"
             maxLength={isStudent ? 10 : undefined}
             value={email}
             onChangeText={handleIdChange}
           />
-          {isStudent ? email.length === 10 && <Ionicons name="checkmark-circle" size={18} color="#16a34a" /> : email.includes("@") && <Ionicons name="checkmark-circle" size={18} color="#16a34a" />}
+          {isStudent ? email.length === 10 && <Ionicons name="checkmark-circle" size={18} color="#16a34a" /> : !emailError(email) && <Ionicons name="checkmark-circle" size={18} color="#16a34a" />}
         </View>
         {loginErrors.identifier ? (
           <View style={styles.warningRow}>
@@ -389,7 +390,15 @@ export default function LoginScreen() {
         </View>
         <View style={[styles.inputWrapper, loginErrors.password && styles.inputWrapperError]}>
           <Ionicons name="lock-closed-outline" size={18} color="#888" style={styles.inputIcon} />
-          <TextInput style={styles.input} placeholder="Enter your password" secureTextEntry={!showPassword} value={password} onChangeText={handlePasswordChange} {...capsProps} />
+          <TextInput
+            style={styles.input}
+            placeholder="Enter your password"
+            placeholderTextColor="#888"
+            secureTextEntry={!showPassword}
+            value={password}
+            onChangeText={handlePasswordChange}
+            {...capsProps}
+          />
           <Pressable onPress={() => setShowPassword(!showPassword)}>
             <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={18} color="#888" />
           </Pressable>
@@ -473,6 +482,7 @@ export default function LoginScreen() {
                   <TextInput
                     style={styles.input}
                     placeholder={isStudent ? "Enter Student ID" : "e.g. j.delacruz@ustp.edu.ph"}
+                    placeholderTextColor="#888"
                     keyboardType={isStudent ? "number-pad" : "email-address"}
                     autoCapitalize="none"
                     maxLength={isStudent ? 10 : undefined}
@@ -499,6 +509,7 @@ export default function LoginScreen() {
                   <TextInput
                     style={styles.input}
                     placeholder="At least 8 characters"
+                    placeholderTextColor="#888"
                     secureTextEntry={!showNewPassword}
                     value={newPassword}
                     onChangeText={(t) => {
@@ -528,6 +539,7 @@ export default function LoginScreen() {
                   <TextInput
                     style={styles.input}
                     placeholder="Re-enter new password"
+                    placeholderTextColor="#888"
                     secureTextEntry={!showNewPassword}
                     value={confirmPassword}
                     onChangeText={(t) => {
@@ -611,7 +623,8 @@ export default function LoginScreen() {
                     <Ionicons name="person-outline" size={18} color="#888" style={styles.inputIcon} />
                     <TextInput
                       style={styles.input}
-                      placeholder="Juan Dela Cruz"
+                      placeholder="eg. Juan Dela Cruz"
+                      placeholderTextColor="#888"
                       value={registerName}
                       onChangeText={(t) => {
                         setRegisterName(t);
@@ -634,6 +647,7 @@ export default function LoginScreen() {
                     <TextInput
                       style={styles.input}
                       placeholder={isRegisterStudent ? "Enter Student ID" : "e.g. j.delacruz@ustp.edu.ph"}
+                      placeholderTextColor="#888"
                       keyboardType={isRegisterStudent ? "number-pad" : "email-address"}
                       autoCapitalize="none"
                       maxLength={isRegisterStudent ? 10 : undefined}
@@ -656,6 +670,7 @@ export default function LoginScreen() {
                     <TextInput
                       style={styles.input}
                       placeholder="At least 8 characters"
+                      placeholderTextColor="#888"
                       secureTextEntry={!showRegisterPassword}
                       value={registerPassword}
                       onChangeText={(t) => {
@@ -685,6 +700,7 @@ export default function LoginScreen() {
                     <TextInput
                       style={styles.input}
                       placeholder="Re-enter password"
+                      placeholderTextColor="#888"
                       secureTextEntry={!showRegisterPassword}
                       value={registerConfirmPassword}
                       onChangeText={(t) => {
