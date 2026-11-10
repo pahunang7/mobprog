@@ -17,11 +17,25 @@ function initialsFor(name: string) {
   return (parts[0][0] + parts[1][0]).toUpperCase();
 }
 
+// Maps each location chip to keywords that may appear in an item's location text.
+// Edit these to match how your item locations are actually worded.
+const LOCATION_KEYWORDS: Record<string, string[]> = {
+  "ICT Bldg": ["ict"],
+  "Engineering Complex": ["engineering", "engg"],
+};
+
+function matchesLocation(itemLocation: string, chip: string) {
+  const text = itemLocation.toLowerCase();
+  const keywords = LOCATION_KEYWORDS[chip] ?? [chip.toLowerCase()];
+  return keywords.some((k) => text.includes(k));
+}
+
 export default function HomeScreen() {
   const { user } = useAuth();
   const { hasClaimed, getClaim } = useClaims();
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<"all" | CategoryKey>("all");
+  const [activeLocation, setActiveLocation] = useState<string | null>(null);
   const [claimModalVisible, setClaimModalVisible] = useState(false);
   const [claimItem, setClaimItem] = useState<ClaimItem | null>(null);
   const [notifVisible, setNotifVisible] = useState(false);
@@ -39,10 +53,11 @@ export default function HomeScreen() {
     return REGISTRY_ITEMS.filter((item) => {
       const matchesCategory = activeCategory === "all" || item.category === activeCategory;
       if (!matchesCategory) return false;
+      if (activeLocation && !matchesLocation(item.location, activeLocation)) return false;
       if (!q) return true;
       return item.title.toLowerCase().includes(q) || item.location.toLowerCase().includes(q) || (item.note ?? "").toLowerCase().includes(q);
     });
-  }, [search, activeCategory]);
+  }, [search, activeCategory, activeLocation]);
 
   const openClaimModal = (item: RegistryItem) => {
     setClaimItem({ id: item.id, title: item.title, code: `Item #${item.id}`, deskLabel: "Security Desk" });
@@ -184,12 +199,15 @@ export default function HomeScreen() {
         <View style={styles.locationRow}>
           <Text style={styles.locationLabel}>LOCATION:</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-            {LOCATIONS.map((loc) => (
-              <View key={loc} style={styles.locationPill}>
-                <Ionicons name="location-outline" size={12} color="#555" />
-                <Text style={styles.locationPillText}>{loc}</Text>
-              </View>
-            ))}
+            {LOCATIONS.map((loc) => {
+              const active = activeLocation === loc;
+              return (
+                <Pressable key={loc} style={[styles.locationPill, active && styles.locationPillActive]} onPress={() => setActiveLocation(active ? null : loc)}>
+                  <Ionicons name="location-outline" size={12} color={active ? "#fff" : "#555"} />
+                  <Text style={[styles.locationPillText, active && styles.locationPillTextActive]}>{loc}</Text>
+                </Pressable>
+              );
+            })}
           </ScrollView>
         </View>
 
@@ -197,7 +215,7 @@ export default function HomeScreen() {
         {filteredItems.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="search-outline" size={28} color="#ccc" />
-            <Text style={styles.emptyStateText}>{search ? `No items match "${search}"` : "No items in this category right now."}</Text>
+            <Text style={styles.emptyStateText}>{search ? `No items match "${search}"` : activeLocation ? `No items reported near ${activeLocation}.` : "No items in this category right now."}</Text>
           </View>
         ) : (
           <View style={{ gap: 12, marginTop: 4 }}>
@@ -458,6 +476,8 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
   },
   locationPillText: { fontSize: 11, color: "#555" },
+  locationPillActive: { backgroundColor: "#111", borderColor: "#111" },
+  locationPillTextActive: { color: "#fff" },
 
   emptyState: { alignItems: "center", gap: 8, paddingVertical: 32 },
   emptyStateText: { fontSize: 12, color: "#999" },

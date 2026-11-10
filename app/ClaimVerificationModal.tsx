@@ -45,12 +45,10 @@ export default function ClaimVerificationModal({ visible, item, onClose, onSubmi
   }, [visible, item?.id]);
 
   // Accept either a 10-digit Student ID, or an @ustp.edu.ph institutional email
-  const idLooksValid = useMemo(() => {
-    const trimmed = studentId.trim();
-    const isTenDigitId = /^\d{10}$/.test(trimmed);
-    const isInstitutionalEmail = /^[^\s@]+@ustp\.edu\.ph$/i.test(trimmed);
-    return isTenDigitId || isInstitutionalEmail;
-  }, [studentId]);
+  // Two separate formats are accepted: a 10-digit Student ID, or an @ustp.edu.ph email
+  const isValidStudentId = useMemo(() => /^\d{10}$/.test(studentId.trim()), [studentId]);
+  const isValidUstpEmail = useMemo(() => /^[^\s@]+@ustp\.edu\.ph$/i.test(studentId.trim()), [studentId]);
+  const idLooksValid = isValidStudentId || isValidUstpEmail;
 
   const clearError = (key: keyof FormErrors) => {
     if (errors[key]) setErrors((prev) => ({ ...prev, [key]: undefined }));
@@ -146,7 +144,7 @@ export default function ClaimVerificationModal({ visible, item, onClose, onSubmi
               {idLooksValid && (
                 <View style={styles.verifiedInline}>
                   <Ionicons name="checkmark-circle" size={12} color="#16a34a" />
-                  <Text style={styles.verifiedInlineText}>Verified USTP ID</Text>
+                  <Text style={styles.verifiedInlineText}>{isValidStudentId ? "Verified Student ID" : "Verified USTP Email"}</Text>
                 </View>
               )}
             </View>

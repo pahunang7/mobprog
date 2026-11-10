@@ -95,7 +95,7 @@ function fallbackDisplayName(identifier: string, role: "student" | "faculty") {
 }
 
 export default function LoginScreen() {
-  const { login, registerUser, getRegisteredName } = useAuth();
+  const { login, registerAccount, verifyCredentials, resetPassword, getRegisteredName } = useAuth();
   const [role, setRole] = useState<"student" | "faculty">("student");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -177,10 +177,16 @@ export default function LoginScreen() {
     return errors;
   };
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     const errors = validateLogin();
     setLoginErrors(errors);
     if (Object.keys(errors).length > 0) return;
+
+    const result = await verifyCredentials(email, password, role);
+    if (!result.ok) {
+      setLoginErrors(result.field === "identifier" ? { identifier: result.error } : { password: result.error });
+      return;
+    }
 
     console.log("Logging in with", email, "Role:", role, "Remember device:", rememberDevice);
     const name = getRegisteredName(email) ?? fallbackDisplayName(email, role);
@@ -226,18 +232,21 @@ export default function LoginScreen() {
     return errors;
   };
 
-  const handleResetPassword = () => {
+  const handleResetPassword = async () => {
     const errors = validateReset();
     setResetErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
     setResetLoading(true);
-    // Simulate an async reset request (replace with your real API call)
-    setTimeout(() => {
-      setResetLoading(false);
-      console.log("Password reset requested for", resetIdentifier);
-      setResetStep("success");
-    }, 900);
+    const result = await resetPassword(resetIdentifier, newPassword, role);
+    setResetLoading(false);
+
+    if (!result.ok) {
+      setResetErrors({ identifier: result.error });
+      return;
+    }
+    console.log("Password reset for", resetIdentifier);
+    setResetStep("success");
   };
 
   // --- Registration handlers ---
@@ -290,19 +299,21 @@ export default function LoginScreen() {
     return errors;
   };
 
-  const handleRegister = () => {
+  const handleRegister = async () => {
     const errors = validateRegister();
     setRegisterErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
     setRegisterLoading(true);
-    // Simulate an async registration request (replace with your real API call)
-    setTimeout(() => {
-      setRegisterLoading(false);
-      console.log("Registering", { name: registerName, identifier: registerIdentifier, role: registerRole });
-      registerUser(registerIdentifier, registerName);
-      setRegisterStep("success");
-    }, 900);
+    const result = await registerAccount(registerIdentifier, registerName, registerPassword, registerRole);
+    setRegisterLoading(false);
+
+    if (!result.ok) {
+      setRegisterErrors({ identifier: result.error });
+      return;
+    }
+    console.log("Registered", { name: registerName, identifier: registerIdentifier, role: registerRole });
+    setRegisterStep("success");
   };
 
   const handleRegisterSuccessClose = () => {
@@ -374,7 +385,7 @@ export default function LoginScreen() {
         {/* Password field */}
         <View style={styles.fieldHeader}>
           <Text style={styles.label}>Password</Text>
-          <Text style={styles.required}>Alphanumeric</Text>
+          <Text style={styles.required}>Required</Text>
         </View>
         <View style={[styles.inputWrapper, loginErrors.password && styles.inputWrapperError]}>
           <Ionicons name="lock-closed-outline" size={18} color="#888" style={styles.inputIcon} />
