@@ -1,12 +1,16 @@
+import { useAuth } from "@/contexts/auth-context";
 import { useClaims } from "@/contexts/claims-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-type NavKey = "feed" | "report" | "claims";
+type NavKey = "feed" | "report" | "claims" | "desk";
 
 export default function BottomNav({ active }: { active: NavKey }) {
   const { claims } = useClaims();
+  const { user } = useAuth();
+  const isFaculty = user?.role === "faculty";
+  const activeClaims = claims.filter((c) => c.status === "Under review").length;
 
   return (
     <View style={styles.bottomNav}>
@@ -23,14 +27,21 @@ export default function BottomNav({ active }: { active: NavKey }) {
       <Pressable style={styles.bottomNavItem} onPress={() => router.navigate("/my-claims" as never)}>
         <View>
           <Ionicons name={active === "claims" ? "shield" : "shield-outline"} size={20} color={active === "claims" ? "#f97316" : "#888"} />
-          {claims.length > 0 && (
+          {activeClaims > 0 && (
             <View style={styles.badge}>
-              <Text style={styles.badgeText}>{claims.length}</Text>
+              <Text style={styles.badgeText}>{activeClaims}</Text>
             </View>
           )}
         </View>
         <Text style={active === "claims" ? styles.bottomNavLabelActive : styles.bottomNavLabel}>My Claims</Text>
       </Pressable>
+
+      {isFaculty && (
+        <Pressable style={styles.bottomNavItem} onPress={() => router.navigate("/desk-admin" as never)}>
+          <Ionicons name={active === "desk" ? "shield-checkmark" : "shield-checkmark-outline"} size={20} color={active === "desk" ? "#f97316" : "#888"} />
+          <Text style={active === "desk" ? styles.bottomNavLabelActive : styles.bottomNavLabel}>Desk Admin</Text>
+        </Pressable>
+      )}
     </View>
   );
 }

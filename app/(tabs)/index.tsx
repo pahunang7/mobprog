@@ -19,7 +19,7 @@ function initialsFor(name: string) {
 
 export default function HomeScreen() {
   const { user } = useAuth();
-  const { hasClaimed } = useClaims();
+  const { hasClaimed, getClaim } = useClaims();
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<"all" | CategoryKey>("all");
   const [claimModalVisible, setClaimModalVisible] = useState(false);
@@ -216,7 +216,7 @@ export default function HomeScreen() {
                   <View style={styles.itemStatusRow}>
                     <View style={[styles.statusPill, item.status === "claimed" ? styles.statusPillClaimed : styles.statusPillPending]}>
                       <Text style={[styles.statusPillText, item.status === "claimed" ? styles.statusPillTextClaimed : styles.statusPillTextPending]}>
-                        {item.status === "claimed" ? "Claimed" : hasClaimed(item.id) ? "Under review" : "Pending"}
+                        {item.status === "claimed" ? "Claimed" : (getClaim(item.id)?.status ?? "Pending")}
                       </Text>
                     </View>
                     <Ionicons name="time-outline" size={11} color="#999" />
@@ -241,7 +241,7 @@ export default function HomeScreen() {
                 ) : hasClaimed(item.id) ? (
                   <View style={styles.claimSentButton}>
                     <Ionicons name="checkmark-circle" size={13} color="#15803d" />
-                    <Text style={styles.claimSentButtonText}>Claim Sent</Text>
+                    <Text style={styles.claimSentButtonText}>{getClaim(item.id)?.status === "Approved" ? "Approved" : "Claim Sent"}</Text>
                   </View>
                 ) : (
                   <Pressable style={styles.claimButton} onPress={() => openClaimModal(item)}>

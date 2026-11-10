@@ -23,6 +23,7 @@ function RootLayoutNav() {
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="my-claims" options={{ headerShown: false, animation: "none" }} />
         <Stack.Screen name="profile" options={{ headerShown: false }} />
+        <Stack.Screen name="desk-admin" options={{ headerShown: false }} />
         <Stack.Screen
           name="report-item"
           options={{

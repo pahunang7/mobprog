@@ -41,13 +41,14 @@ function InfoRow({ icon, label, value, last, valueColor }: RowProps) {
 
 export default function ProfileScreen() {
   const { user, logout, updatePhoto } = useAuth();
-  const { claims, clearClaims } = useClaims();
+  const { claims } = useClaims();
   const [confirmVisible, setConfirmVisible] = useState(false);
   const [photoSheet, setPhotoSheet] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
 
   const name = user?.name ? titleCase(user.name) : "Trailblazer";
   const isStudent = user?.role !== "faculty";
+  const activeClaims = claims.filter((c) => c.status === "Under review").length;
 
   const goBack = () => {
     if (router.canGoBack()) router.back();
@@ -104,7 +105,6 @@ export default function ProfileScreen() {
 
   const handleLogout = () => {
     setConfirmVisible(false);
-    clearClaims(); // don't leave one person's claims showing for the next login
     logout();
     router.replace("/login" as never);
   };
@@ -127,6 +127,9 @@ export default function ProfileScreen() {
             <View style={styles.camBadge}>
               <Ionicons name="camera" size={13} color="#fff" />
             </View>
+          </Pressable>
+          <Pressable onPress={() => setPhotoSheet(true)} hitSlop={6}>
+            <Text style={styles.changePhotoText}>{user?.photoUri ? "Change photo" : "Add photo"}</Text>
           </Pressable>
           {photoError ? <Text style={styles.photoError}>{photoError}</Text> : null}
           <Text style={styles.heroName}>{name}</Text>
@@ -161,7 +164,7 @@ export default function ProfileScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.infoLabel}>My claims</Text>
-              <Text style={styles.infoValue}>{claims.length === 0 ? "No active claims" : `${claims.length} claim${claims.length > 1 ? "s" : ""} under review`}</Text>
+              <Text style={styles.infoValue}>{activeClaims === 0 ? "No active claims" : `${activeClaims} claim${activeClaims > 1 ? "s" : ""} under review`}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color="#94a3b8" />
           </View>

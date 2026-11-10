@@ -6,6 +6,12 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-nati
 import BottomNav from "./BottomNav";
 import { REGISTRY_ITEMS } from "./registry-data";
 
+const STATUS_STYLE = {
+  "Under review": { bg: "#ffedd5", fg: "#c2410c" },
+  Approved: { bg: "#dcfce7", fg: "#15803d" },
+  Rejected: { bg: "#fee2e2", fg: "#b91c1c" },
+} as const;
+
 export default function MyClaimsScreen() {
   const { claims, cancelClaim } = useClaims();
 
@@ -47,8 +53,8 @@ export default function MyClaimsScreen() {
                   </View>
                   <View style={{ flex: 1, gap: 2 }}>
                     <View style={styles.metaRow}>
-                      <View style={styles.statusPill}>
-                        <Text style={styles.statusText}>{c.status}</Text>
+                      <View style={[styles.statusPill, { backgroundColor: STATUS_STYLE[c.status].bg }]}>
+                        <Text style={[styles.statusText, { color: STATUS_STYLE[c.status].fg }]}>{c.status}</Text>
                       </View>
                       <Text style={styles.time}>{new Date(c.claimedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</Text>
                     </View>
@@ -63,11 +69,19 @@ export default function MyClaimsScreen() {
                         </Text>
                       </View>
                     ) : null}
-                    {c.deskLabel ? <Text style={styles.desk}>Verify at: {c.deskLabel}</Text> : null}
+                    <Text style={styles.desk}>
+                      {c.status === "Approved"
+                        ? "Approved - bring your student ID to the Security Desk to collect it."
+                        : c.status === "Rejected"
+                          ? "Not approved. You can submit a new claim from the feed."
+                          : `Awaiting verification at the ${c.deskLabel ?? "Security Desk"}`}
+                    </Text>
                   </View>
-                  <Pressable style={styles.cancelBtn} onPress={() => confirmCancel(c.id, c.title)}>
-                    <Text style={styles.cancelText}>Cancel</Text>
-                  </Pressable>
+                  {c.status === "Under review" ? (
+                    <Pressable style={styles.cancelBtn} onPress={() => confirmCancel(c.id, c.title)}>
+                      <Text style={styles.cancelText}>Cancel</Text>
+                    </Pressable>
+                  ) : null}
                 </View>
               );
             })}

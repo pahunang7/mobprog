@@ -1,112 +1,67 @@
+import { useAuth } from "@/contexts/auth-context";
+import { Claim, useClaims } from "@/contexts/claims-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-
-type QueueStatus = "awaiting" | "proof_uploaded" | "overdue";
-
-type QueueItem = {
-  id: string;
-  code: string;
-  status: QueueStatus;
-  title: string;
-  claimant: string;
-  claimantId: string;
-  location: string;
-  timeAgo: string;
-  proofCount: number;
-  iconName: keyof typeof Ionicons.glyphMap;
-  overdueNote?: string;
-};
-
-const INITIAL_QUEUE: QueueItem[] = [
-  {
-    id: "1",
-    code: "#LF-9021",
-    status: "awaiting",
-    title: "MacBook Air M1 Space Gray",
-    claimant: "Mark Anthony",
-    claimantId: "2020-10492",
-    location: "ICT Bldg Rm 204",
-    timeAgo: "2h ago",
-    proofCount: 2,
-    iconName: "laptop-outline",
-  },
-  {
-    id: "2",
-    code: "#LF-9024",
-    status: "proof_uploaded",
-    title: "Hydro Flask 32oz Yellow",
-    claimant: "Sarah Lee",
-    claimantId: "2022-30114",
-    location: "Gymnasium Bleachers",
-    timeAgo: "4h ago",
-    proofCount: 1,
-    iconName: "water-outline",
-  },
-  {
-    id: "3",
-    code: "#LF-9018",
-    status: "overdue",
-    title: "Casio fx-991EX Calculator",
-    claimant: "",
-    claimantId: "",
-    location: "Engineering Complex Rm 108",
-    timeAgo: "",
-    proofCount: 0,
-    iconName: "calculator-outline",
-    overdueNote: "Custody Transfer Ready • No claim",
-  },
-];
-
-const STATUS_META: Record<QueueStatus, { label: string; bg: string; fg: string }> = {
-  awaiting: { label: "Awaiting Verification", bg: "#fef3c7", fg: "#b45309" },
-  proof_uploaded: { label: "Proof Uploaded", bg: "#dbeafe", fg: "#1d4ed8" },
-  overdue: { label: "Overdue > 30d", bg: "#fee2e2", fg: "#b91c1c" },
-};
+import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import BottomNav from "./BottomNav";
+import { REGISTRY_ITEMS } from "./registry-data";
 
 type Tab = "pending" | "found" | "archive";
+type Confirm = { type: "approve" | "reject"; claim: Claim } | null;
+
+const claimKey = (c: Claim) => `${c.ownerId}:${c.id}`;
+const ticketCode = (id: string) => `#LF-${9000 + Number(id || 0)}`;
+
+function timeAgo(ts: number) {
+  const mins = Math.floor((Date.now() - ts) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
+
+function titleCase(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
 
 export default function DeskAdminScreen() {
+  const { user, logout } = useAuth();
+  const { allClaims, reviewClaim } = useClaims();
   const [tab, setTab] = useState<Tab>("pending");
-  const [queue, setQueue] = useState(INITIAL_QUEUE);
   const [search, setSearch] = useState("");
+  const [proofClaim, setProofClaim] = useState<Claim | null>(null);
+  const [confirm, setConfirm] = useState<Confirm>(null);
 
-  const pendingCount = useMemo(() => queue.filter((q) => q.status !== "overdue").length, [queue]);
+  const officerName = user?.name ? titleCase(user.name) : "Desk Officer";
 
-  const handleApprove = (item: QueueItem) => {
-    Alert.alert("Approve claim?", `Confirm ${item.claimant || "this claim"} as the verified owner of "${item.title}".`, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Approve",
-        onPress: () => {
-          console.log("Approved", item.code);
-          setQueue((prev) => prev.filter((q) => q.id !== item.id));
-        },
-      },
-    ]);
+  const pending = useMemo(() => allClaims.filter((c) => c.status === "Under review"), [allClaims]);
+  const processed = useMemo(() => allClaims.filter((c) => c.status !== "Under review").sort((a, b) => (b.reviewedAt ?? 0) - (a.reviewedAt ?? 0)), [allClaims]);
+
+  const q = search.trim().toLowerCase();
+  const matches = (c: Claim) =>
+    !q || c.title.toLowerCase().includes(q) || ticketCode(c.id).toLowerCase().includes(q) || c.studentId.toLowerCase().includes(q) || c.claimantName.toLowerCase().includes(q);
+  const shownPending = pending.filter(matches);
+  const shownProcessed = processed.filter(matches);
+  const shownFound = REGISTRY_ITEMS.filter((i) => !q || i.title.toLowerCase().includes(q) || i.location.toLowerCase().includes(q));
+
+  const sourceOf = (id: string) => REGISTRY_ITEMS.find((i) => i.id === id);
+
+  const runConfirm = () => {
+    if (!confirm) return;
+    reviewClaim(confirm.claim, confirm.type === "approve" ? "Approved" : "Rejected", officerName);
+    setConfirm(null);
   };
 
-  const handleReject = (item: QueueItem) => {
-    Alert.alert("Reject claim?", `This will remove the claim on "${item.title}" and notify the claimant.`, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Reject",
-        style: "destructive",
-        onPress: () => {
-          console.log("Rejected", item.code);
-          setQueue((prev) => prev.filter((q) => q.id !== item.id));
-        },
-      },
-    ]);
+  const handleLogout = () => {
+    logout();
+    router.replace("/login" as never);
   };
-
-  const handleArchive = (item: QueueItem) => {
-    console.log("Archived", item.code);
-    setQueue((prev) => prev.filter((q) => q.id !== item.id));
-  };
-
-  const filteredQueue = queue.filter((q) => !search.trim() || q.title.toLowerCase().includes(search.toLowerCase()) || q.code.toLowerCase().includes(search.toLowerCase()));
 
   return (
     <View style={styles.screen}>
@@ -124,9 +79,11 @@ export default function DeskAdminScreen() {
         <View style={styles.headerRight}>
           <View style={styles.iconButton}>
             <Ionicons name="notifications-outline" size={20} color="#111" />
-            <View style={styles.notifDot} />
+            {pending.length > 0 && <View style={styles.notifDot} />}
           </View>
-          <Ionicons name="person-circle-outline" size={24} color="#111" />
+          <Pressable onPress={() => router.push("/profile" as never)} hitSlop={8}>
+            <Ionicons name="person-circle-outline" size={24} color="#111" />
+          </Pressable>
         </View>
       </View>
 
@@ -134,16 +91,17 @@ export default function DeskAdminScreen() {
         {/* Officer card */}
         <View style={styles.officerCard}>
           <View style={styles.officerAvatar}>
-            <Ionicons name="person" size={20} color="#fff" />
+            <Ionicons name="shield-checkmark" size={20} color="#fff" />
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.officerName}>Officer R. Mendoza</Text>
+          <View style={{ flex: 1, minWidth: 140 }}>
+            <Text style={styles.officerName}>Officer {officerName}</Text>
             <Text style={styles.officerRole}>USTP Campus Security & Custody Desk</Text>
           </View>
           <View style={styles.supervisorPill}>
             <Text style={styles.supervisorPillText}>SUPERVISOR</Text>
           </View>
           <View style={styles.stationPill}>
+            <View style={styles.stationDot} />
             <Text style={styles.stationPillText}>Station #04</Text>
           </View>
         </View>
@@ -152,10 +110,16 @@ export default function DeskAdminScreen() {
         <View style={styles.searchRow}>
           <Ionicons name="search-outline" size={17} color="#888" style={{ marginRight: 8 }} />
           <TextInput style={styles.searchInput} placeholder="Search ticket, ID number, or item..." placeholderTextColor="#999" value={search} onChangeText={setSearch} />
-          <Ionicons name="options-outline" size={17} color="#111" />
+          {search.length > 0 ? (
+            <Pressable onPress={() => setSearch("")} hitSlop={8}>
+              <Ionicons name="close-circle" size={17} color="#bbb" />
+            </Pressable>
+          ) : (
+            <Ionicons name="options-outline" size={17} color="#111" />
+          )}
         </View>
 
-        {/* Stats grid */}
+        {/* Stats */}
         <View style={styles.statsGrid}>
           <View style={styles.statCard}>
             <Text style={styles.statLabel}>LOST</Text>
@@ -167,9 +131,9 @@ export default function DeskAdminScreen() {
             <Text style={styles.statValue}>189</Text>
             <Text style={styles.statDeltaUp}>+18 wk</Text>
           </View>
-          <View style={styles.statCard}>
+          <View style={[styles.statCard, pending.length > 0 && styles.statCardHot]}>
             <Text style={styles.statLabel}>PENDING</Text>
-            <Text style={[styles.statValue, { color: "#dc2626" }]}>{pendingCount}</Text>
+            <Text style={[styles.statValue, { color: "#dc2626" }]}>{pending.length}</Text>
             <Text style={styles.statDeltaAction}>Action</Text>
           </View>
           <View style={styles.statCard}>
@@ -180,110 +144,234 @@ export default function DeskAdminScreen() {
         </View>
 
         {/* Tabs */}
-        <View style={styles.tabRow}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabRow} style={{ flexGrow: 0 }}>
           <Pressable style={[styles.tabButton, tab === "pending" && styles.tabButtonActive]} onPress={() => setTab("pending")}>
             <Text style={tab === "pending" ? styles.tabButtonTextActive : styles.tabButtonText}>Pending Claims</Text>
-            {pendingCount > 0 && (
+            {pending.length > 0 && (
               <View style={styles.tabDot}>
-                <Text style={styles.tabDotText}>{pendingCount}</Text>
+                <Text style={styles.tabDotText}>{pending.length}</Text>
               </View>
             )}
           </Pressable>
           <Pressable style={[styles.tabButton, tab === "found" && styles.tabButtonActive]} onPress={() => setTab("found")}>
-            <Text style={tab === "found" ? styles.tabButtonTextActive : styles.tabButtonText}>Found Items (38)</Text>
+            <Text style={tab === "found" ? styles.tabButtonTextActive : styles.tabButtonText}>Found Items ({REGISTRY_ITEMS.length})</Text>
           </Pressable>
           <Pressable style={[styles.tabButton, tab === "archive" && styles.tabButtonActive]} onPress={() => setTab("archive")}>
-            <Text style={tab === "archive" ? styles.tabButtonTextActive : styles.tabButtonText}>Archive (15)</Text>
+            <Text style={tab === "archive" ? styles.tabButtonTextActive : styles.tabButtonText}>Archive ({processed.length})</Text>
           </Pressable>
-        </View>
+        </ScrollView>
 
-        {tab === "pending" ? (
+        {/* ---- Pending claims ---- */}
+        {tab === "pending" && (
           <>
             <View style={styles.queueHeaderRow}>
               <Text style={styles.queueTitle}>Custody Verification Queue</Text>
               <View style={styles.pendingBadge}>
-                <Text style={styles.pendingBadgeText}>{filteredQueue.filter((q) => q.status !== "overdue").length} pending</Text>
+                <Text style={styles.pendingBadgeText}>{shownPending.length} pending</Text>
               </View>
             </View>
 
-            <View style={{ gap: 12 }}>
-              {filteredQueue.length === 0 ? (
-                <Text style={styles.emptyText}>Queue is clear — nice work.</Text>
-              ) : (
-                filteredQueue.map((item) => {
-                  const meta = STATUS_META[item.status];
+            {shownPending.length === 0 ? (
+              <View style={styles.emptyBox}>
+                <Ionicons name="checkmark-done-circle-outline" size={30} color="#94a3b8" />
+                <Text style={styles.emptyTitle}>{q ? "No claims match your search" : "Queue is clear"}</Text>
+                <Text style={styles.emptyText}>{q ? "Try a different ticket, ID or item name." : "Claims submitted by students will appear here for verification."}</Text>
+              </View>
+            ) : (
+              <View style={{ gap: 12 }}>
+                {shownPending.map((c) => {
+                  const src = sourceOf(c.id);
+                  const hasProof = !!c.proofName;
                   return (
-                    <View key={item.id} style={styles.queueCard}>
+                    <View key={claimKey(c)} style={styles.queueCard}>
                       <View style={styles.queueCardTop}>
-                        <View style={styles.queueThumb}>
-                          <Ionicons name={item.iconName} size={20} color="#475569" />
+                        <View style={[styles.queueThumb, { backgroundColor: src?.iconBg ?? "#e2e8f0" }]}>
+                          <Ionicons name={src?.iconName ?? "cube-outline"} size={20} color={src?.iconColor ?? "#475569"} />
                         </View>
                         <View style={{ flex: 1 }}>
                           <View style={styles.queueCodeRow}>
-                            <Text style={styles.queueCode}>{item.code}</Text>
-                            <View style={[styles.statusPill, { backgroundColor: meta.bg }]}>
-                              <Text style={[styles.statusPillText, { color: meta.fg }]}>{meta.label}</Text>
+                            <Text style={styles.queueCode}>{ticketCode(c.id)}</Text>
+                            <View style={[styles.statusPill, { backgroundColor: hasProof ? "#dbeafe" : "#fef3c7" }]}>
+                              <Text style={[styles.statusPillText, { color: hasProof ? "#1d4ed8" : "#b45309" }]}>{hasProof ? "Proof Uploaded" : "Awaiting Verification"}</Text>
                             </View>
                           </View>
-                          <Text style={styles.queueItemTitle}>{item.title}</Text>
-                          {item.status !== "overdue" ? (
-                            <Text style={styles.queueMeta}>
-                              Claimant: {item.claimant} (ID: {item.claimantId})
-                            </Text>
-                          ) : null}
+                          <Text style={styles.queueItemTitle}>{c.title}</Text>
                           <Text style={styles.queueMeta}>
-                            {item.location}
-                            {item.timeAgo ? ` • ${item.timeAgo}` : ""}
+                            Claimant: {titleCase(c.claimantName)} (ID: {c.studentId})
                           </Text>
-                          {item.overdueNote ? <Text style={styles.overdueNote}>{item.overdueNote}</Text> : null}
+                          <Text style={styles.queueMeta}>
+                            {src?.location ?? "Security Desk"} • {timeAgo(c.claimedAt)}
+                          </Text>
                         </View>
                       </View>
 
-                      {item.status === "overdue" ? (
-                        <View style={styles.actionRow}>
-                          <Text style={styles.transferText}>Transfer to archive vault</Text>
-                          <Pressable style={styles.archiveButton} onPress={() => handleArchive(item)}>
-                            <Ionicons name="archive-outline" size={13} color="#333" />
-                            <Text style={styles.archiveButtonText}>Archive Item</Text>
-                          </Pressable>
-                        </View>
-                      ) : (
-                        <View style={styles.actionRow}>
-                          <Pressable style={styles.viewProofButton}>
-                            <Ionicons name="eye-outline" size={13} color="#333" />
-                            <Text style={styles.viewProofText}>View Proof ({item.proofCount})</Text>
-                          </Pressable>
-                          <Pressable style={styles.rejectButton} onPress={() => handleReject(item)}>
-                            <Ionicons name="close" size={13} color="#dc2626" />
-                            <Text style={styles.rejectText}>Reject</Text>
-                          </Pressable>
-                          <Pressable style={styles.approveButton} onPress={() => handleApprove(item)}>
-                            <Ionicons name="checkmark" size={13} color="#fff" />
-                            <Text style={styles.approveText}>Approve</Text>
-                          </Pressable>
-                        </View>
-                      )}
+                      <View style={styles.actionRow}>
+                        <Pressable style={styles.viewProofButton} onPress={() => setProofClaim(c)}>
+                          <Ionicons name="eye-outline" size={13} color="#333" />
+                          <Text style={styles.viewProofText}>View Proof ({hasProof ? 1 : 0})</Text>
+                        </Pressable>
+                        <Pressable style={styles.rejectButton} onPress={() => setConfirm({ type: "reject", claim: c })}>
+                          <Ionicons name="close" size={13} color="#dc2626" />
+                          <Text style={styles.rejectText}>Reject</Text>
+                        </Pressable>
+                        <Pressable style={styles.approveButton} onPress={() => setConfirm({ type: "approve", claim: c })}>
+                          <Ionicons name="checkmark" size={13} color="#fff" />
+                          <Text style={styles.approveText}>Approve</Text>
+                        </Pressable>
+                      </View>
                     </View>
                   );
-                })
-              )}
-            </View>
+                })}
+              </View>
+            )}
           </>
-        ) : (
-          <View style={styles.placeholderBox}>
-            <Ionicons name={tab === "found" ? "cube-outline" : "archive-outline"} size={26} color="#94a3b8" />
-            <Text style={styles.placeholderText}>{tab === "found" ? "Found items catalog goes here." : "Archived cases go here."}</Text>
+        )}
+
+        {/* ---- Found items ---- */}
+        {tab === "found" && (
+          <View style={{ gap: 10 }}>
+            {shownFound.length === 0 ? (
+              <Text style={styles.emptyText}>No items match your search.</Text>
+            ) : (
+              shownFound.map((i) => {
+                const open = allClaims.filter((c) => c.id === i.id && c.status === "Under review").length;
+                return (
+                  <View key={i.id} style={styles.simpleCard}>
+                    <View style={[styles.queueThumb, { backgroundColor: i.iconBg }]}>
+                      <Ionicons name={i.iconName} size={20} color={i.iconColor} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.queueCode}>{ticketCode(i.id)}</Text>
+                      <Text style={styles.queueItemTitle} numberOfLines={1}>
+                        {i.title}
+                      </Text>
+                      <Text style={styles.queueMeta}>
+                        {i.location} • {i.timeAgo}
+                      </Text>
+                    </View>
+                    <View style={[styles.statusPill, { backgroundColor: i.status === "claimed" ? "#e0e7ff" : open ? "#ffedd5" : "#fef3c7" }]}>
+                      <Text style={[styles.statusPillText, { color: i.status === "claimed" ? "#4338ca" : open ? "#c2410c" : "#b45309" }]}>
+                        {i.status === "claimed" ? "Returned" : open ? `${open} claim${open > 1 ? "s" : ""}` : "Unclaimed"}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })
+            )}
           </View>
         )}
 
+        {/* ---- Archive ---- */}
+        {tab === "archive" && (
+          <View style={{ gap: 10 }}>
+            {shownProcessed.length === 0 ? (
+              <View style={styles.emptyBox}>
+                <Ionicons name="archive-outline" size={28} color="#94a3b8" />
+                <Text style={styles.emptyTitle}>Nothing archived yet</Text>
+                <Text style={styles.emptyText}>Approved and rejected claims are kept here.</Text>
+              </View>
+            ) : (
+              shownProcessed.map((c) => {
+                const ok = c.status === "Approved";
+                return (
+                  <View key={claimKey(c)} style={styles.simpleCard}>
+                    <View style={[styles.queueThumb, { backgroundColor: ok ? "#dcfce7" : "#fee2e2" }]}>
+                      <Ionicons name={ok ? "checkmark-circle" : "close-circle"} size={22} color={ok ? "#16a34a" : "#dc2626"} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.queueCode}>{ticketCode(c.id)}</Text>
+                      <Text style={styles.queueItemTitle} numberOfLines={1}>
+                        {c.title}
+                      </Text>
+                      <Text style={styles.queueMeta}>
+                        {titleCase(c.claimantName)} (ID: {c.studentId})
+                      </Text>
+                      <Text style={styles.queueMeta}>
+                        {c.status} by {c.reviewedBy ?? "Desk"} • {c.reviewedAt ? timeAgo(c.reviewedAt) : ""}
+                      </Text>
+                    </View>
+                    <View style={[styles.statusPill, { backgroundColor: ok ? "#dcfce7" : "#fee2e2" }]}>
+                      <Text style={[styles.statusPillText, { color: ok ? "#15803d" : "#b91c1c" }]}>{c.status}</Text>
+                    </View>
+                  </View>
+                );
+              })
+            )}
+          </View>
+        )}
+
+        {/* Session row */}
         <View style={styles.sessionRow}>
           <View style={styles.sessionDot} />
           <Text style={styles.sessionText}>Session #04-Secured</Text>
-          <Pressable style={{ marginLeft: "auto" }} onPress={() => router.replace("/login" as never)}>
+          <Pressable style={styles.logoutLink} onPress={handleLogout}>
+            <Ionicons name="log-out-outline" size={14} color="#dc2626" />
             <Text style={styles.logoutText}>Log Out</Text>
           </Pressable>
         </View>
       </ScrollView>
+
+      <BottomNav active="desk" />
+
+      {/* Proof viewer */}
+      <Modal visible={!!proofClaim} transparent animationType="fade" onRequestClose={() => setProofClaim(null)}>
+        <View style={styles.dialogBackdrop}>
+          <View style={styles.dialog}>
+            {proofClaim && (
+              <>
+                <View style={styles.dialogHeader}>
+                  <Text style={styles.dialogTitle}>Ownership proof</Text>
+                  <Pressable onPress={() => setProofClaim(null)} hitSlop={10}>
+                    <Ionicons name="close" size={18} color="#888" />
+                  </Pressable>
+                </View>
+                <Text style={styles.proofItem}>{proofClaim.title}</Text>
+                <Text style={styles.proofLabel}>Claimant</Text>
+                <Text style={styles.proofValue}>
+                  {titleCase(proofClaim.claimantName)} (ID: {proofClaim.studentId})
+                </Text>
+                <Text style={styles.proofLabel}>Ownership details & distinct marks</Text>
+                <Text style={styles.proofValue}>{proofClaim.ownership}</Text>
+                <Text style={styles.proofLabel}>Uploaded file</Text>
+                <View style={styles.filePill}>
+                  <Ionicons name="document-text-outline" size={15} color="#dc2626" />
+                  <Text style={styles.filePillText}>{proofClaim.proofName ?? "No file uploaded"}</Text>
+                </View>
+                <Text style={styles.proofNote}>Image preview isn't available yet - the upload is a placeholder until file storage is connected.</Text>
+                <Pressable style={styles.closeBtn} onPress={() => setProofClaim(null)}>
+                  <Text style={styles.closeBtnText}>Close</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Approve / reject confirmation (custom dialog so it works on web too) */}
+      <Modal visible={!!confirm} transparent animationType="fade" onRequestClose={() => setConfirm(null)}>
+        <View style={styles.dialogBackdrop}>
+          <View style={styles.dialog}>
+            {confirm && (
+              <>
+                <Text style={styles.dialogTitle}>{confirm.type === "approve" ? "Approve claim?" : "Reject claim?"}</Text>
+                <Text style={styles.dialogBody}>
+                  {confirm.type === "approve"
+                    ? `Confirm ${titleCase(confirm.claim.claimantName)} as the verified owner of "${confirm.claim.title}". Any other pending claims on this item will be rejected.`
+                    : `This rejects ${titleCase(confirm.claim.claimantName)}'s claim on "${confirm.claim.title}". The student will see it as Rejected.`}
+                </Text>
+                <View style={styles.dialogActions}>
+                  <Pressable style={styles.keepBtn} onPress={() => setConfirm(null)}>
+                    <Text style={styles.keepText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable style={[styles.confirmBtn, { backgroundColor: confirm.type === "approve" ? "#16a34a" : "#dc2626" }]} onPress={runConfirm}>
+                    <Text style={styles.confirmText}>{confirm.type === "approve" ? "Approve" : "Reject"}</Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -296,7 +384,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 16,
-    paddingTop: 50,
+    paddingTop: 14,
     paddingBottom: 12,
     backgroundColor: "#fff",
     borderBottomWidth: 1,
@@ -327,7 +415,8 @@ const styles = StyleSheet.create({
   officerRole: { fontSize: 10.5, color: "#888" },
   supervisorPill: { backgroundColor: "#fef3c7", borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3 },
   supervisorPillText: { fontSize: 9, fontWeight: "700", color: "#a16207" },
-  stationPill: { backgroundColor: "#dcfce7", borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3 },
+  stationPill: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#dcfce7", borderRadius: 8, paddingHorizontal: 7, paddingVertical: 3 },
+  stationDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#16a34a" },
   stationPillText: { fontSize: 9, fontWeight: "700", color: "#15803d" },
 
   searchRow: {
@@ -344,7 +433,8 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 13, color: "#111" },
 
   statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 16 },
-  statCard: { flexBasis: "47%", backgroundColor: "#fff", borderRadius: 12, padding: 12, gap: 2 },
+  statCard: { flexBasis: "47%", flexGrow: 1, backgroundColor: "#fff", borderRadius: 12, padding: 12, gap: 2, borderWidth: 1, borderColor: "transparent" },
+  statCardHot: { borderColor: "#fdba74" },
   statLabel: { fontSize: 9, fontWeight: "700", color: "#999", letterSpacing: 0.4 },
   statValue: { fontSize: 20, fontWeight: "700", color: "#111" },
   statDeltaUp: { fontSize: 10, color: "#16a34a" },
@@ -352,15 +442,7 @@ const styles = StyleSheet.create({
   statDeltaRate: { fontSize: 10, color: "#888" },
 
   tabRow: { flexDirection: "row", gap: 8, marginBottom: 16 },
-  tabButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
-  },
+  tabButton: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#fff", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 9 },
   tabButtonActive: { backgroundColor: "#111" },
   tabButtonText: { fontSize: 11, fontWeight: "600", color: "#333" },
   tabButtonTextActive: { fontSize: 11, fontWeight: "700", color: "#fff" },
@@ -373,69 +455,51 @@ const styles = StyleSheet.create({
   pendingBadgeText: { fontSize: 10, fontWeight: "700", color: "#a16207" },
 
   queueCard: { backgroundColor: "#fff", borderRadius: 14, padding: 12, gap: 10 },
+  simpleCard: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#fff", borderRadius: 14, padding: 12 },
   queueCardTop: { flexDirection: "row", gap: 10 },
-  queueThumb: { width: 46, height: 46, borderRadius: 10, backgroundColor: "#e2e8f0", alignItems: "center", justifyContent: "center" },
-  queueCodeRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2 },
+  queueThumb: { width: 46, height: 46, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  queueCodeRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 2, flexWrap: "wrap" },
   queueCode: { fontSize: 11, fontWeight: "700", color: "#f97316" },
   statusPill: { borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2 },
   statusPillText: { fontSize: 9, fontWeight: "700" },
   queueItemTitle: { fontSize: 13, fontWeight: "700", color: "#111" },
   queueMeta: { fontSize: 10.5, color: "#888", marginTop: 1 },
-  overdueNote: { fontSize: 10.5, color: "#b91c1c", marginTop: 3, fontWeight: "600" },
 
   actionRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  viewProofButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    borderRadius: 8,
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-  },
+  viewProofButton: { flexDirection: "row", alignItems: "center", gap: 4, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, paddingHorizontal: 9, paddingVertical: 7 },
   viewProofText: { fontSize: 11, color: "#333", fontWeight: "600" },
-  rejectButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    borderWidth: 1,
-    borderColor: "#fecaca",
-    borderRadius: 8,
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-  },
+  rejectButton: { flexDirection: "row", alignItems: "center", gap: 4, borderWidth: 1, borderColor: "#fecaca", borderRadius: 8, paddingHorizontal: 9, paddingVertical: 7 },
   rejectText: { fontSize: 11, color: "#dc2626", fontWeight: "600" },
-  approveButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#16a34a",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    marginLeft: "auto",
-  },
+  approveButton: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#16a34a", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, marginLeft: "auto" },
   approveText: { fontSize: 11, color: "#fff", fontWeight: "700" },
-  transferText: { fontSize: 10.5, color: "#94a3b8", flex: 1 },
-  archiveButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-  },
-  archiveButtonText: { fontSize: 11, color: "#333", fontWeight: "600" },
 
-  emptyText: { fontSize: 12, color: "#999", textAlign: "center", paddingVertical: 20 },
-  placeholderBox: { alignItems: "center", gap: 8, paddingVertical: 40 },
-  placeholderText: { fontSize: 12, color: "#94a3b8" },
+  emptyBox: { alignItems: "center", gap: 6, paddingVertical: 36, paddingHorizontal: 20 },
+  emptyTitle: { fontSize: 14, fontWeight: "700", color: "#334155" },
+  emptyText: { fontSize: 12, color: "#94a3b8", textAlign: "center" },
 
-  sessionRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 20, marginBottom: 10 },
+  sessionRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 24, marginBottom: 10, backgroundColor: "#fff", borderRadius: 12, padding: 12 },
   sessionDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#16a34a" },
   sessionText: { fontSize: 11, color: "#888" },
+  logoutLink: { marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 4 },
   logoutText: { fontSize: 11, color: "#dc2626", fontWeight: "700" },
+
+  dialogBackdrop: { flex: 1, backgroundColor: "rgba(15,15,25,0.55)", alignItems: "center", justifyContent: "center", padding: 24 },
+  dialog: { width: "100%", maxWidth: 360, backgroundColor: "#fff", borderRadius: 16, padding: 18 },
+  dialogHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  dialogTitle: { fontSize: 15, fontWeight: "700", color: "#111" },
+  dialogBody: { fontSize: 12, color: "#666", marginTop: 6, lineHeight: 17 },
+  dialogActions: { flexDirection: "row", gap: 10, marginTop: 16 },
+  keepBtn: { flex: 1, borderRadius: 10, paddingVertical: 11, alignItems: "center", backgroundColor: "#f1f5f9" },
+  keepText: { fontSize: 12, fontWeight: "700", color: "#475569" },
+  confirmBtn: { flex: 1, borderRadius: 10, paddingVertical: 11, alignItems: "center" },
+  confirmText: { fontSize: 12, fontWeight: "700", color: "#fff" },
+
+  proofItem: { fontSize: 13, fontWeight: "700", color: "#111", marginBottom: 8 },
+  proofLabel: { fontSize: 10, fontWeight: "700", color: "#94a3b8", marginTop: 8 },
+  proofValue: { fontSize: 12, color: "#111", marginTop: 2, lineHeight: 17 },
+  filePill: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#f8fafc", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, marginTop: 4 },
+  filePillText: { fontSize: 11, color: "#333" },
+  proofNote: { fontSize: 10, color: "#94a3b8", marginTop: 8, lineHeight: 14 },
+  closeBtn: { marginTop: 14, borderRadius: 10, paddingVertical: 11, alignItems: "center", backgroundColor: "#111" },
+  closeBtnText: { color: "#fff", fontSize: 12, fontWeight: "700" },
 });
