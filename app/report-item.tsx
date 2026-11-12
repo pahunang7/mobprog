@@ -1,7 +1,9 @@
+import { useReports } from "@/contexts/reports-context";
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { router, useLocalSearchParams } from "expo-router";
 import { useMemo, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 type Mode = "lost" | "found";
 
@@ -31,6 +33,7 @@ function to24Hour(hour12: number, period: "AM" | "PM") {
 
 export default function ReportItemScreen() {
   const params = useLocalSearchParams<{ mode?: string }>();
+  const { addReport } = useReports();
   const [mode, setMode] = useState<Mode>(params.mode === "found" ? "found" : "lost");
 
   const [itemName, setItemName] = useState("");
@@ -39,6 +42,7 @@ export default function ReportItemScreen() {
   const [location, setLocation] = useState("");
   const [contact, setContact] = useState("");
   const [photoName, setPhotoName] = useState<string | null>(null);
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
@@ -143,9 +147,17 @@ export default function ReportItemScreen() {
     return next;
   };
 
-  const handlePickPhoto = () => {
-    // Placeholder — wire up expo-image-picker here for a real device picker.
-    setPhotoName(mode === "lost" ? "lost_item_photo.jpg" : "found_item_photo.jpg");
+  const handlePickPhoto = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 0.4, // compressed so it fits in device storage
+      base64: true,
+    });
+    if (result.canceled) return;
+    const asset = result.assets[0];
+    if (!asset.base64) return;
+    setPhotoUri(`data:${asset.mimeType ?? "image/jpeg"};base64,${asset.base64}`);
+    setPhotoName(asset.fileName ?? "photo.jpg");
   };
 
   const handleSubmit = () => {
@@ -156,6 +168,7 @@ export default function ReportItemScreen() {
     setSubmitting(true);
     setTimeout(() => {
       console.log("Submitting report", { mode, itemName, category, dateTime, location, contact, photoName });
+      addReport({ kind: mode, itemName: itemName.trim(), category, dateTime, location: location.trim(), contact, photoUri });
       setSubmitting(false);
       setSubmitted(true);
 
@@ -286,12 +299,19 @@ export default function ReportItemScreen() {
             <View style={styles.uploadIconCircle}>
               <Ionicons name="cloud-upload-outline" size={18} color="#fff" />
             </View>
-            <Text style={styles.uploadText}>Upload or drag photo here</Text>
+            <Text style={styles.uploadText}>{photoUri ? "Tap to change photo" : "Tap to upload a photo"}</Text>
+            {photoUri ? <Image source={{ uri: photoUri }} style={styles.photoPreview} /> : null}
             {photoName && (
               <View style={styles.filePill}>
                 <Ionicons name="image-outline" size={14} color="#333" />
                 <Text style={styles.filePillText}>{photoName}</Text>
-                <Pressable onPress={() => setPhotoName(null)} hitSlop={8}>
+                <Pressable
+                  onPress={() => {
+                    setPhotoName(null);
+                    setPhotoUri(null);
+                  }}
+                  hitSlop={8}
+                >
                   <Ionicons name="close" size={14} color="#888" />
                 </Pressable>
               </View>
@@ -501,6 +521,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   uploadText: { fontSize: 12, color: "#9a3412", fontWeight: "600" },
+  photoPreview: { width: 160, height: 120, borderRadius: 10, marginTop: 4 },
   filePill: {
     flexDirection: "row",
     alignItems: "center",

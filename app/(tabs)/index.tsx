@@ -1,5 +1,6 @@
 import { useAuth } from "@/contexts/auth-context";
 import { useClaims } from "@/contexts/claims-context";
+import { useReports } from "@/contexts/reports-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useMemo, useState } from "react";
@@ -7,7 +8,7 @@ import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View 
 import BottomNav from "../BottomNav";
 import ClaimVerificationModal, { ClaimItem } from "../ClaimVerificationModal";
 import { INITIAL_NOTIFICATIONS, NotificationItem } from "../notifications-data";
-import { CATEGORIES, CategoryKey, LOCATIONS, REGISTRY_ITEMS, RegistryItem } from "../registry-data";
+import { CATEGORIES, CategoryKey, LOCATIONS, RegistryItem } from "../registry-data";
 
 // Turns a full name into initials for the avatar circle, e.g. "Juan Dela Cruz" -> "JD"
 function initialsFor(name: string) {
@@ -30,9 +31,19 @@ function matchesLocation(itemLocation: string, chip: string) {
   return keywords.some((k) => text.includes(k));
 }
 
+type Tone = "available" | "review" | "done" | "missing" | "reserved";
+const TONES: Record<Tone, { bg: string; fg: string }> = {
+  available: { bg: "#dcfce7", fg: "#15803d" },
+  review: { bg: "#fef3c7", fg: "#b45309" },
+  done: { bg: "#e0e7ff", fg: "#4338ca" },
+  missing: { bg: "#fee2e2", fg: "#b91c1c" },
+  reserved: { bg: "#e0f2fe", fg: "#0369a1" },
+};
+
 export default function HomeScreen() {
   const { user } = useAuth();
-  const { hasClaimed, getClaim } = useClaims();
+  const { hasClaimed, getClaim, isItemClosed, isItemReturned } = useClaims();
+  const { allItems, isMine } = useReports();
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<"all" | CategoryKey>("all");
   const [activeLocation, setActiveLocation] = useState<string | null>(null);
@@ -41,7 +52,25 @@ export default function HomeScreen() {
   const [notifVisible, setNotifVisible] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>(INITIAL_NOTIFICATIONS);
 
-  const activeCount = REGISTRY_ITEMS.filter((i) => i.status === "pending" && !hasClaimed(i.id)).length;
+  const activeCount = allItems.filter((i) => i.kind !== "lost" && (i.reportStatus ?? "approved") === "approved" && i.status === "pending" && !isItemClosed(i.id) && !hasClaimed(i.id)).length;
+
+  // Handed back to its owner (demo item, resolved lost report, or claim marked collected by the desk)
+  const isReturned = (item: RegistryItem) => item.status === "claimed" || isItemReturned(item.id);
+
+  // Approved for another student and waiting for pickup at the desk
+  const isReserved = (item: RegistryItem) => item.kind !== "lost" && isItemClosed(item.id) && !isItemReturned(item.id) && !hasClaimed(item.id);
+
+  const statusInfo = (item: RegistryItem): { label: string; tone: Tone } => {
+    if (item.reportStatus === "pending") return { label: "Awaiting approval", tone: "review" };
+    if (item.reportStatus === "rejected") return { label: "Rejected", tone: "missing" };
+    if (isReturned(item)) return item.kind === "lost" ? { label: "Resolved", tone: "done" } : { label: "Returned", tone: "done" };
+    if (isReserved(item)) return { label: "Reserved", tone: "reserved" };
+    if (item.kind === "lost") return { label: "Missing", tone: "missing" };
+    const mine = getClaim(item.id);
+    if (mine) return mine.status === "Approved" ? { label: "Approved", tone: "available" } : { label: "Claim pending", tone: "review" };
+    return { label: "Available", tone: "available" };
+  };
+
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   const displayName = user?.name ?? "Trailblazer";
@@ -50,14 +79,14 @@ export default function HomeScreen() {
 
   const filteredItems = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return REGISTRY_ITEMS.filter((item) => {
+    return allItems.filter((item) => {
       const matchesCategory = activeCategory === "all" || item.category === activeCategory;
       if (!matchesCategory) return false;
       if (activeLocation && !matchesLocation(item.location, activeLocation)) return false;
       if (!q) return true;
       return item.title.toLowerCase().includes(q) || item.location.toLowerCase().includes(q) || (item.note ?? "").toLowerCase().includes(q);
     });
-  }, [search, activeCategory, activeLocation]);
+  }, [search, activeCategory, activeLocation, allItems]);
 
   const openClaimModal = (item: RegistryItem) => {
     setClaimItem({ id: item.id, title: item.title, code: `Item #${item.id}`, deskLabel: "Security Desk" });
@@ -222,8 +251,8 @@ export default function HomeScreen() {
             {filteredItems.map((item) => (
               <View key={item.id} style={styles.itemCard}>
                 <View style={[styles.itemThumb, { backgroundColor: item.iconBg }]}>
-                  <Ionicons name={item.iconName} size={22} color={item.iconColor} />
-                  {item.status === "claimed" && (
+                  {item.photoUri ? <Image source={{ uri: item.photoUri }} style={styles.itemPhoto} /> : <Ionicons name={item.iconName} size={22} color={item.iconColor} />}
+                  {isReturned(item) && (
                     <View style={styles.claimedBadgeOverlay}>
                       <Ionicons name="checkmark" size={11} color="#fff" />
                     </View>
@@ -232,10 +261,8 @@ export default function HomeScreen() {
 
                 <View style={styles.itemInfo}>
                   <View style={styles.itemStatusRow}>
-                    <View style={[styles.statusPill, item.status === "claimed" ? styles.statusPillClaimed : styles.statusPillPending]}>
-                      <Text style={[styles.statusPillText, item.status === "claimed" ? styles.statusPillTextClaimed : styles.statusPillTextPending]}>
-                        {item.status === "claimed" ? "Claimed" : (getClaim(item.id)?.status ?? "Pending")}
-                      </Text>
+                    <View style={[styles.statusPill, { backgroundColor: TONES[statusInfo(item).tone].bg }]}>
+                      <Text style={[styles.statusPillText, { color: TONES[statusInfo(item).tone].fg }]}>{statusInfo(item).label}</Text>
                     </View>
                     <Ionicons name="time-outline" size={11} color="#999" />
                     <Text style={styles.itemTime}>{item.timeAgo}</Text>
@@ -252,14 +279,34 @@ export default function HomeScreen() {
                   {item.note ? <Text style={styles.itemNote}>{item.note}</Text> : null}
                 </View>
 
-                {item.status === "claimed" ? (
+                {item.reportStatus === "pending" ? (
+                  <View style={styles.yourReportButton}>
+                    <Text style={styles.yourReportText}>Awaiting approval</Text>
+                  </View>
+                ) : item.reportStatus === "rejected" ? (
+                  <View style={styles.lostButton}>
+                    <Text style={styles.lostButtonText}>Rejected</Text>
+                  </View>
+                ) : isReturned(item) ? (
                   <View style={styles.caseClosedButton}>
-                    <Text style={styles.caseClosedButtonText}>Case Closed</Text>
+                    <Text style={styles.caseClosedButtonText}>{item.kind === "lost" ? "Resolved" : "Returned"}</Text>
+                  </View>
+                ) : isReserved(item) ? (
+                  <View style={styles.caseClosedButton}>
+                    <Text style={styles.caseClosedButtonText}>Reserved</Text>
+                  </View>
+                ) : isMine(item) ? (
+                  <View style={styles.yourReportButton}>
+                    <Text style={styles.yourReportText}>Your report</Text>
+                  </View>
+                ) : item.kind === "lost" ? (
+                  <View style={styles.lostButton}>
+                    <Text style={styles.lostButtonText}>Missing</Text>
                   </View>
                 ) : hasClaimed(item.id) ? (
                   <View style={styles.claimSentButton}>
                     <Ionicons name="checkmark-circle" size={13} color="#15803d" />
-                    <Text style={styles.claimSentButtonText}>{getClaim(item.id)?.status === "Approved" ? "Approved" : "Claim Sent"}</Text>
+                    <Text style={styles.claimSentButtonText}>{getClaim(item.id)?.status === "Approved" ? "Approved" : "Claim pending"}</Text>
                   </View>
                 ) : (
                   <Pressable style={styles.claimButton} onPress={() => openClaimModal(item)}>
@@ -500,6 +547,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     position: "relative",
   },
+  itemPhoto: { width: 52, height: 52, borderRadius: 10 },
   claimedBadgeOverlay: {
     position: "absolute",
     bottom: -3,
@@ -516,11 +564,7 @@ const styles = StyleSheet.create({
   itemInfo: { flex: 1, gap: 2 },
   itemStatusRow: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 1 },
   statusPill: { paddingHorizontal: 7, paddingVertical: 1, borderRadius: 8, marginRight: 4 },
-  statusPillPending: { backgroundColor: "#fef3c7" },
-  statusPillClaimed: { backgroundColor: "#e0e7ff" },
   statusPillText: { fontSize: 9, fontWeight: "700" },
-  statusPillTextPending: { color: "#b45309" },
-  statusPillTextClaimed: { color: "#4338ca" },
   itemTime: { fontSize: 10, color: "#999" },
   itemTitle: { fontSize: 13, fontWeight: "700", color: "#111" },
   itemLocationRow: { flexDirection: "row", alignItems: "center", gap: 3 },
@@ -554,6 +598,10 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   claimSentButtonText: { color: "#15803d", fontSize: 11, fontWeight: "700" },
+  yourReportButton: { backgroundColor: "#eef2ff", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 },
+  yourReportText: { color: "#4338ca", fontSize: 11, fontWeight: "700" },
+  lostButton: { backgroundColor: "#fee2e2", borderRadius: 10, paddingHorizontal: 10, paddingVertical: 7 },
+  lostButtonText: { color: "#b91c1c", fontSize: 11, fontWeight: "700" },
 
   footerNotice: { alignItems: "center", gap: 4, marginTop: 22, paddingHorizontal: 10 },
   footerNoticeTitle: { fontSize: 10, fontWeight: "700", color: "#334155", letterSpacing: 0.3, marginTop: 4, textAlign: "center" },

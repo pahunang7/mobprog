@@ -1,13 +1,13 @@
 import { useAuth } from "@/contexts/auth-context";
 import { Claim, useClaims } from "@/contexts/claims-context";
+import { useReports } from "@/contexts/reports-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useMemo, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import BottomNav from "./BottomNav";
-import { REGISTRY_ITEMS } from "./registry-data";
 
-type Tab = "pending" | "found" | "archive";
+type Tab = "reports" | "pending" | "pickup" | "found" | "archive";
 type Confirm = { type: "approve" | "reject"; claim: Claim } | null;
 
 type AdminNotification = {
@@ -78,13 +78,15 @@ const INITIAL_ADMIN_NOTIFICATIONS: AdminNotification[] = [
 const claimKey = (c: Claim) => `${c.ownerId}:${c.id}`;
 const ticketCode = (id: string) => `#LF-${9000 + Number(id || 0)}`;
 
+// Same format as the student feed, e.g. "1 hour ago", "5 mins ago"
 function timeAgo(ts: number) {
   const mins = Math.floor((Date.now() - ts) / 60000);
   if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 60) return `${mins} ${mins === 1 ? "min" : "mins"} ago`;
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
+  if (hrs < 24) return `${hrs} ${hrs === 1 ? "hour" : "hours"} ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days} ${days === 1 ? "day" : "days"} ago`;
 }
 
 function titleCase(name: string) {
@@ -97,7 +99,8 @@ function titleCase(name: string) {
 
 export default function DeskAdminScreen() {
   const { user } = useAuth();
-  const { allClaims, reviewClaim } = useClaims();
+  const { allClaims, reviewClaim, markCollected, isItemClosed, isItemReturned } = useClaims();
+  const { allItems, pendingReports, reviewReport, resolveReport } = useReports();
   const [tab, setTab] = useState<Tab>("pending");
   const [search, setSearch] = useState("");
   const [proofClaim, setProofClaim] = useState<Claim | null>(null);
@@ -108,17 +111,32 @@ export default function DeskAdminScreen() {
   const officerName = user?.name ? titleCase(user.name) : "Desk Officer";
   const unreadCount = notifications.filter((n) => !n.read).length;
 
+  // Only approved reports (and the demo items) count as public items
+  const publicItems = useMemo(() => allItems.filter((i) => (i.reportStatus ?? "approved") === "approved"), [allItems]);
+  const lostCount = 142 + publicItems.filter((i) => i.kind === "lost").length;
+  const foundCount = 189 + publicItems.filter((i) => i.kind === "found").length;
+
   const pending = useMemo(() => allClaims.filter((c) => c.status === "Under review"), [allClaims]);
-  const processed = useMemo(() => allClaims.filter((c) => c.status !== "Under review").sort((a, b) => (b.reviewedAt ?? 0) - (a.reviewedAt ?? 0)), [allClaims]);
+  const pendingTotal = pending.length + pendingReports.length;
+  // Approved by the desk, waiting for the student to come and collect the item
+  const awaitingPickup = useMemo(() => allClaims.filter((c) => c.status === "Approved"), [allClaims]);
+  // Finished claims: handed over (Collected) or Rejected
+  const processed = useMemo(
+    () => allClaims.filter((c) => c.status === "Collected" || c.status === "Rejected").sort((a, b) => (b.collectedAt ?? b.reviewedAt ?? 0) - (a.collectedAt ?? a.reviewedAt ?? 0)),
+    [allClaims],
+  );
+  const returnedCount = 124 + allClaims.filter((c) => c.status === "Collected").length;
 
   const q = search.trim().toLowerCase();
   const matches = (c: Claim) =>
     !q || c.title.toLowerCase().includes(q) || ticketCode(c.id).toLowerCase().includes(q) || c.studentId.toLowerCase().includes(q) || c.claimantName.toLowerCase().includes(q);
   const shownPending = pending.filter(matches);
+  const shownPickup = awaitingPickup.filter(matches);
   const shownProcessed = processed.filter(matches);
-  const shownFound = REGISTRY_ITEMS.filter((i) => !q || i.title.toLowerCase().includes(q) || i.location.toLowerCase().includes(q));
+  const shownFound = publicItems.filter((i) => !q || i.title.toLowerCase().includes(q) || i.location.toLowerCase().includes(q));
+  const shownReports = pendingReports.filter((r) => !q || r.itemName.toLowerCase().includes(q) || r.reporterName.toLowerCase().includes(q) || r.location.toLowerCase().includes(q));
 
-  const sourceOf = (id: string) => REGISTRY_ITEMS.find((i) => i.id === id);
+  const sourceOf = (id: string) => allItems.find((i) => i.id === id);
 
   const runConfirm = () => {
     if (!confirm) return;
@@ -222,22 +240,22 @@ export default function DeskAdminScreen() {
         <View style={styles.statsGrid}>
           <View style={styles.statCard}>
             <Text style={styles.statLabel}>LOST</Text>
-            <Text style={styles.statValue}>142</Text>
+            <Text style={styles.statValue}>{lostCount}</Text>
             <Text style={styles.statDeltaUp}>+12 wk</Text>
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statLabel}>FOUND</Text>
-            <Text style={styles.statValue}>189</Text>
+            <Text style={styles.statValue}>{foundCount}</Text>
             <Text style={styles.statDeltaUp}>+18 wk</Text>
           </View>
-          <View style={[styles.statCard, pending.length > 0 && styles.statCardHot]}>
+          <View style={[styles.statCard, pendingTotal > 0 && styles.statCardHot]}>
             <Text style={styles.statLabel}>PENDING</Text>
-            <Text style={[styles.statValue, { color: "#dc2626" }]}>{pending.length}</Text>
+            <Text style={[styles.statValue, { color: "#dc2626" }]}>{pendingTotal}</Text>
             <Text style={styles.statDeltaAction}>Action</Text>
           </View>
           <View style={styles.statCard}>
             <Text style={styles.statLabel}>RETURNED</Text>
-            <Text style={styles.statValue}>124</Text>
+            <Text style={styles.statValue}>{returnedCount}</Text>
             <Text style={styles.statDeltaRate}>87% rate</Text>
           </View>
         </View>
@@ -252,13 +270,86 @@ export default function DeskAdminScreen() {
               </View>
             )}
           </Pressable>
+          <Pressable style={[styles.tabButton, tab === "pickup" && styles.tabButtonActive]} onPress={() => setTab("pickup")}>
+            <Text style={tab === "pickup" ? styles.tabButtonTextActive : styles.tabButtonText}>Pickup</Text>
+            {awaitingPickup.length > 0 && (
+              <View style={styles.tabDot}>
+                <Text style={styles.tabDotText}>{awaitingPickup.length}</Text>
+              </View>
+            )}
+          </Pressable>
+          <Pressable style={[styles.tabButton, tab === "reports" && styles.tabButtonActive]} onPress={() => setTab("reports")}>
+            <Text style={tab === "reports" ? styles.tabButtonTextActive : styles.tabButtonText}>Reports</Text>
+            {pendingReports.length > 0 && (
+              <View style={styles.tabDot}>
+                <Text style={styles.tabDotText}>{pendingReports.length}</Text>
+              </View>
+            )}
+          </Pressable>
           <Pressable style={[styles.tabButton, tab === "found" && styles.tabButtonActive]} onPress={() => setTab("found")}>
-            <Text style={tab === "found" ? styles.tabButtonTextActive : styles.tabButtonText}>Found Items ({REGISTRY_ITEMS.length})</Text>
+            <Text style={tab === "found" ? styles.tabButtonTextActive : styles.tabButtonText}>Items ({publicItems.length})</Text>
           </Pressable>
           <Pressable style={[styles.tabButton, tab === "archive" && styles.tabButtonActive]} onPress={() => setTab("archive")}>
             <Text style={tab === "archive" ? styles.tabButtonTextActive : styles.tabButtonText}>Archive ({processed.length})</Text>
           </Pressable>
         </ScrollView>
+
+        {/* ---- Reports awaiting approval ---- */}
+        {tab === "reports" && (
+          <>
+            <View style={styles.queueHeaderRow}>
+              <Text style={styles.queueTitle}>Report Approval Queue</Text>
+              <View style={styles.pendingBadge}>
+                <Text style={styles.pendingBadgeText}>{shownReports.length} pending</Text>
+              </View>
+            </View>
+
+            {shownReports.length === 0 ? (
+              <View style={styles.emptyBox}>
+                <Ionicons name="checkmark-done-circle-outline" size={30} color="#94a3b8" />
+                <Text style={styles.emptyTitle}>{q ? "No reports match your search" : "No reports to review"}</Text>
+                <Text style={styles.emptyText}>{q ? "Try a different item, location or name." : "New lost and found reports from students will appear here for approval."}</Text>
+              </View>
+            ) : (
+              <View style={{ gap: 12 }}>
+                {shownReports.map((r) => (
+                  <View key={r.id} style={styles.queueCard}>
+                    {r.photoUri ? <Image source={{ uri: r.photoUri }} style={styles.reportPhoto} /> : null}
+                    <View style={styles.queueCodeRow}>
+                      <Text style={styles.queueCode}>{ticketCode(r.id)}</Text>
+                      <View style={[styles.statusPill, { backgroundColor: r.kind === "lost" ? "#fee2e2" : "#fef3c7" }]}>
+                        <Text style={[styles.statusPillText, { color: r.kind === "lost" ? "#b91c1c" : "#b45309" }]}>{r.kind === "lost" ? "LOST REPORT" : "FOUND REPORT"}</Text>
+                      </View>
+                      {!r.photoUri && (
+                        <View style={[styles.statusPill, { backgroundColor: "#f1f5f9" }]}>
+                          <Text style={[styles.statusPillText, { color: "#64748b" }]}>No photo</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.queueItemTitle}>{r.itemName}</Text>
+                    <Text style={styles.queueMeta}>{r.category}</Text>
+                    <Text style={styles.queueMeta}>
+                      {r.location} • {r.dateTime}
+                    </Text>
+                    <Text style={styles.queueMeta}>
+                      Reported by {titleCase(r.reporterName)} • {r.contact} • {timeAgo(r.createdAt)}
+                    </Text>
+                    <View style={styles.actionRow}>
+                      <Pressable style={styles.rejectButton} onPress={() => reviewReport(r.id, "rejected", officerName)}>
+                        <Ionicons name="close" size={13} color="#dc2626" />
+                        <Text style={styles.rejectText}>Reject</Text>
+                      </Pressable>
+                      <Pressable style={styles.approveButton} onPress={() => reviewReport(r.id, "approved", officerName)}>
+                        <Ionicons name="checkmark" size={13} color="#fff" />
+                        <Text style={styles.approveText}>Approve & Publish</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
+          </>
+        )}
 
         {/* ---- Pending claims ---- */}
         {tab === "pending" && (
@@ -285,7 +376,11 @@ export default function DeskAdminScreen() {
                     <View key={claimKey(c)} style={styles.queueCard}>
                       <View style={styles.queueCardTop}>
                         <View style={[styles.queueThumb, { backgroundColor: src?.iconBg ?? "#e2e8f0" }]}>
-                          <Ionicons name={src?.iconName ?? "cube-outline"} size={20} color={src?.iconColor ?? "#475569"} />
+                          {src?.photoUri ? (
+                            <Image source={{ uri: src.photoUri }} style={{ width: 46, height: 46, borderRadius: 10 }} />
+                          ) : (
+                            <Ionicons name={src?.iconName ?? "cube-outline"} size={20} color={src?.iconColor ?? "#475569"} />
+                          )}
                         </View>
                         <View style={{ flex: 1 }}>
                           <View style={styles.queueCodeRow}>
@@ -326,7 +421,68 @@ export default function DeskAdminScreen() {
           </>
         )}
 
-        {/* ---- Found items ---- */}
+        {/* ---- Awaiting pickup ---- */}
+        {tab === "pickup" && (
+          <>
+            <View style={styles.queueHeaderRow}>
+              <Text style={styles.queueTitle}>Awaiting Pickup</Text>
+              <View style={styles.pendingBadge}>
+                <Text style={styles.pendingBadgeText}>{shownPickup.length} waiting</Text>
+              </View>
+            </View>
+
+            {shownPickup.length === 0 ? (
+              <View style={styles.emptyBox}>
+                <Ionicons name="checkmark-done-circle-outline" size={30} color="#94a3b8" />
+                <Text style={styles.emptyTitle}>{q ? "No pickups match your search" : "Nothing waiting for pickup"}</Text>
+                <Text style={styles.emptyText}>{q ? "Try a different ticket, ID or item name." : "Approved claims appear here until the student collects the item."}</Text>
+              </View>
+            ) : (
+              <View style={{ gap: 12 }}>
+                {shownPickup.map((c) => {
+                  const src = sourceOf(c.id);
+                  return (
+                    <View key={claimKey(c)} style={styles.queueCard}>
+                      <View style={styles.queueCardTop}>
+                        <View style={[styles.queueThumb, { backgroundColor: src?.iconBg ?? "#e2e8f0" }]}>
+                          {src?.photoUri ? (
+                            <Image source={{ uri: src.photoUri }} style={{ width: 46, height: 46, borderRadius: 10 }} />
+                          ) : (
+                            <Ionicons name={src?.iconName ?? "cube-outline"} size={20} color={src?.iconColor ?? "#475569"} />
+                          )}
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <View style={styles.queueCodeRow}>
+                            <Text style={styles.queueCode}>{ticketCode(c.id)}</Text>
+                            <View style={[styles.statusPill, { backgroundColor: "#dcfce7" }]}>
+                              <Text style={[styles.statusPillText, { color: "#15803d" }]}>Approved</Text>
+                            </View>
+                          </View>
+                          <Text style={styles.queueItemTitle}>{c.title}</Text>
+                          <Text style={styles.queueMeta}>
+                            Claimant: {titleCase(c.claimantName)} (ID: {c.studentId})
+                          </Text>
+                          <Text style={styles.queueMeta}>
+                            Approved by {c.reviewedBy ?? "Desk"} • {c.reviewedAt ? timeAgo(c.reviewedAt) : ""}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={styles.actionRow}>
+                        <Pressable style={styles.approveButton} onPress={() => markCollected(c)}>
+                          <Ionicons name="checkmark-done" size={13} color="#fff" />
+                          <Text style={styles.approveText}>Mark as collected</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </>
+        )}
+
+        {/* ---- Items ---- */}
         {tab === "found" && (
           <View style={{ gap: 10 }}>
             {shownFound.length === 0 ? (
@@ -334,10 +490,16 @@ export default function DeskAdminScreen() {
             ) : (
               shownFound.map((i) => {
                 const open = allClaims.filter((c) => c.id === i.id && c.status === "Under review").length;
+                const returned = i.status === "claimed" || isItemReturned(i.id);
+                const isLost = i.kind === "lost";
+                const awaiting = !isLost && !returned && isItemClosed(i.id);
+                const pillBg = returned ? "#e0e7ff" : awaiting ? "#e0f2fe" : isLost ? "#fee2e2" : open ? "#ffedd5" : "#dcfce7";
+                const pillFg = returned ? "#4338ca" : awaiting ? "#0369a1" : isLost ? "#b91c1c" : open ? "#c2410c" : "#15803d";
+                const pillText = returned ? (isLost ? "Resolved" : "Returned") : awaiting ? "Awaiting pickup" : isLost ? "Missing" : open ? `${open} claim${open > 1 ? "s" : ""}` : "Available";
                 return (
                   <View key={i.id} style={styles.simpleCard}>
                     <View style={[styles.queueThumb, { backgroundColor: i.iconBg }]}>
-                      <Ionicons name={i.iconName} size={20} color={i.iconColor} />
+                      {i.photoUri ? <Image source={{ uri: i.photoUri }} style={{ width: 46, height: 46, borderRadius: 10 }} /> : <Ionicons name={i.iconName} size={20} color={i.iconColor} />}
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.queueCode}>{ticketCode(i.id)}</Text>
@@ -347,11 +509,15 @@ export default function DeskAdminScreen() {
                       <Text style={styles.queueMeta}>
                         {i.location} • {i.timeAgo}
                       </Text>
+                      {i.reporterName ? <Text style={styles.queueMeta}>Reported by {titleCase(i.reporterName)}</Text> : null}
+                      {i.reporterId && !returned && !awaiting ? (
+                        <Pressable style={styles.resolveBtn} onPress={() => resolveReport(i.id)}>
+                          <Text style={styles.resolveText}>Mark resolved</Text>
+                        </Pressable>
+                      ) : null}
                     </View>
-                    <View style={[styles.statusPill, { backgroundColor: i.status === "claimed" ? "#e0e7ff" : open ? "#ffedd5" : "#fef3c7" }]}>
-                      <Text style={[styles.statusPillText, { color: i.status === "claimed" ? "#4338ca" : open ? "#c2410c" : "#b45309" }]}>
-                        {i.status === "claimed" ? "Returned" : open ? `${open} claim${open > 1 ? "s" : ""}` : "Unclaimed"}
-                      </Text>
+                    <View style={[styles.statusPill, { backgroundColor: pillBg }]}>
+                      <Text style={[styles.statusPillText, { color: pillFg }]}>{pillText}</Text>
                     </View>
                   </View>
                 );
@@ -367,15 +533,15 @@ export default function DeskAdminScreen() {
               <View style={styles.emptyBox}>
                 <Ionicons name="archive-outline" size={28} color="#94a3b8" />
                 <Text style={styles.emptyTitle}>Nothing archived yet</Text>
-                <Text style={styles.emptyText}>Approved and rejected claims are kept here.</Text>
+                <Text style={styles.emptyText}>Returned and rejected claims are kept here.</Text>
               </View>
             ) : (
               shownProcessed.map((c) => {
-                const ok = c.status === "Approved";
+                const ok = c.status === "Collected";
                 return (
                   <View key={claimKey(c)} style={styles.simpleCard}>
-                    <View style={[styles.queueThumb, { backgroundColor: ok ? "#dcfce7" : "#fee2e2" }]}>
-                      <Ionicons name={ok ? "checkmark-circle" : "close-circle"} size={22} color={ok ? "#16a34a" : "#dc2626"} />
+                    <View style={[styles.queueThumb, { backgroundColor: ok ? "#e0e7ff" : "#fee2e2" }]}>
+                      <Ionicons name={ok ? "checkmark-circle" : "close-circle"} size={22} color={ok ? "#4338ca" : "#dc2626"} />
                     </View>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.queueCode}>{ticketCode(c.id)}</Text>
@@ -386,11 +552,13 @@ export default function DeskAdminScreen() {
                         {titleCase(c.claimantName)} (ID: {c.studentId})
                       </Text>
                       <Text style={styles.queueMeta}>
-                        {c.status} by {c.reviewedBy ?? "Desk"} • {c.reviewedAt ? timeAgo(c.reviewedAt) : ""}
+                        {ok
+                          ? `Approved by ${c.reviewedBy ?? "Desk"} • handed over ${c.collectedAt ? timeAgo(c.collectedAt) : ""}`
+                          : `Rejected by ${c.reviewedBy ?? "Desk"} • ${c.reviewedAt ? timeAgo(c.reviewedAt) : ""}`}
                       </Text>
                     </View>
-                    <View style={[styles.statusPill, { backgroundColor: ok ? "#dcfce7" : "#fee2e2" }]}>
-                      <Text style={[styles.statusPillText, { color: ok ? "#15803d" : "#b91c1c" }]}>{c.status}</Text>
+                    <View style={[styles.statusPill, { backgroundColor: ok ? "#e0e7ff" : "#fee2e2" }]}>
+                      <Text style={[styles.statusPillText, { color: ok ? "#4338ca" : "#b91c1c" }]}>{ok ? "Returned" : "Rejected"}</Text>
                     </View>
                   </View>
                 );
@@ -445,7 +613,7 @@ export default function DeskAdminScreen() {
                 <Text style={styles.dialogTitle}>{confirm.type === "approve" ? "Approve claim?" : "Reject claim?"}</Text>
                 <Text style={styles.dialogBody}>
                   {confirm.type === "approve"
-                    ? `Confirm ${titleCase(confirm.claim.claimantName)} as the verified owner of "${confirm.claim.title}". Any other pending claims on this item will be rejected.`
+                    ? `Confirm ${titleCase(confirm.claim.claimantName)} as the verified owner of "${confirm.claim.title}". Any other pending claims on this item will be rejected. The item stays reserved until you mark it as collected in the Pickup tab.`
                     : `This rejects ${titleCase(confirm.claim.claimantName)}'s claim on "${confirm.claim.title}". The student will see it as Rejected.`}
                 </Text>
                 <View style={styles.dialogActions}>
@@ -592,6 +760,9 @@ const styles = StyleSheet.create({
   statusPillText: { fontSize: 9, fontWeight: "700" },
   queueItemTitle: { fontSize: 13, fontWeight: "700", color: "#111" },
   queueMeta: { fontSize: 10.5, color: "#888", marginTop: 1 },
+  reportPhoto: { width: "100%", height: 160, borderRadius: 10, backgroundColor: "#f1f5f9" },
+  resolveBtn: { alignSelf: "flex-start", marginTop: 6, borderWidth: 1, borderColor: "#bbf7d0", borderRadius: 8, paddingHorizontal: 9, paddingVertical: 4 },
+  resolveText: { fontSize: 10, fontWeight: "700", color: "#15803d" },
 
   actionRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   viewProofButton: { flexDirection: "row", alignItems: "center", gap: 4, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 8, paddingHorizontal: 9, paddingVertical: 7 },

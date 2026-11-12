@@ -2,7 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 
 export type ItemStatus = "pending" | "claimed";
 
-export type CategoryKey = "electronics" | "bottles" | "campus";
+export type CategoryKey = "electronics" | "bottles" | "campus" | "other";
 
 export type RegistryItem = {
   id: string;
@@ -15,12 +15,18 @@ export type RegistryItem = {
   iconName: keyof typeof Ionicons.glyphMap;
   iconColor: string;
   iconBg: string;
+  kind?: "lost" | "found"; // only set on submitted reports
+  reporterId?: string;
+  reporterName?: string;
+  photoUri?: string | null;
+  reportStatus?: "pending" | "approved" | "rejected";
 };
 
 export const CATEGORIES: { key: CategoryKey; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: "electronics", label: "Electronics", icon: "hardware-chip-outline" },
   { key: "bottles", label: "Bottles", icon: "water-outline" },
   { key: "campus", label: "Campus IDs", icon: "card-outline" },
+  { key: "other", label: "Other", icon: "ellipsis-horizontal-circle-outline" },
 ];
 
 export const LOCATIONS = ["ICT Bldg", "Engineering Complex"];

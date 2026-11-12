@@ -1,4 +1,4 @@
-import { useClaims } from "@/contexts/claims-context";
+import { ClaimStatus, useClaims } from "@/contexts/claims-context";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useState } from "react";
@@ -7,13 +7,22 @@ import BottomNav from "./BottomNav";
 import { REGISTRY_ITEMS } from "./registry-data";
 
 const STATUS_STYLE = {
-  "Under review": { bg: "#ffedd5", fg: "#c2410c" },
+  "Under review": { bg: "#fef3c7", fg: "#b45309" },
   Approved: { bg: "#dcfce7", fg: "#15803d" },
+  Collected: { bg: "#e0e7ff", fg: "#4338ca" },
   Rejected: { bg: "#fee2e2", fg: "#b91c1c" },
 } as const;
 
+// Same wording as the feed
+const STATUS_LABEL: Record<ClaimStatus, string> = {
+  "Under review": "Claim pending",
+  Approved: "Approved",
+  Collected: "Returned",
+  Rejected: "Rejected",
+};
+
 export default function MyClaimsScreen() {
-  const { claims, cancelClaim } = useClaims();
+  const { claims, cancelClaim, isItemClosed } = useClaims();
 
   // Alert.alert with buttons doesn't work on web, so we use our own confirm dialog
   const [pending, setPending] = useState<{ id: string; title: string } | null>(null);
@@ -54,7 +63,7 @@ export default function MyClaimsScreen() {
                   <View style={{ flex: 1, gap: 2 }}>
                     <View style={styles.metaRow}>
                       <View style={[styles.statusPill, { backgroundColor: STATUS_STYLE[c.status].bg }]}>
-                        <Text style={[styles.statusText, { color: STATUS_STYLE[c.status].fg }]}>{c.status}</Text>
+                        <Text style={[styles.statusText, { color: STATUS_STYLE[c.status].fg }]}>{STATUS_LABEL[c.status]}</Text>
                       </View>
                       <Text style={styles.time}>{new Date(c.claimedAt).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</Text>
                     </View>
@@ -72,9 +81,13 @@ export default function MyClaimsScreen() {
                     <Text style={styles.desk}>
                       {c.status === "Approved"
                         ? "Approved - bring your student ID to the Security Desk to collect it."
-                        : c.status === "Rejected"
-                          ? "Not approved. You can submit a new claim from the feed."
-                          : `Awaiting verification at the ${c.deskLabel ?? "Security Desk"}`}
+                        : c.status === "Collected"
+                          ? "Returned - you have collected this item from the Security Desk."
+                          : c.status === "Rejected"
+                            ? isItemClosed(c.id)
+                              ? "Not approved. This item has been released to another claimant."
+                              : "Not approved. You can submit a new claim from the feed."
+                            : `Awaiting verification at the ${c.deskLabel ?? "Security Desk"}`}
                     </Text>
                   </View>
                   {c.status === "Under review" ? (

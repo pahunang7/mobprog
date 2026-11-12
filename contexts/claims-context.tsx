@@ -2,7 +2,7 @@ import { useAuth } from "@/contexts/auth-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
-export type ClaimStatus = "Under review" | "Approved" | "Rejected";
+export type ClaimStatus = "Under review" | "Approved" | "Collected" | "Rejected";
 
 export type Claim = {
   id: string; // registry item id
@@ -18,6 +18,7 @@ export type Claim = {
   status: ClaimStatus;
   reviewedAt?: number;
   reviewedBy?: string;
+  collectedAt?: number;
 };
 
 type ClaimInput = Pick<Claim, "id" | "title" | "code" | "deskLabel">;
@@ -34,8 +35,14 @@ type ClaimsContextValue = {
   /** The logged-in student's active (not rejected) claim for an item */
   getClaim: (itemId: string) => Claim | undefined;
   hasClaimed: (itemId: string) => boolean;
+  /** True once ANY claim on this item has been approved (nobody else can claim it) */
+  isItemClosed: (itemId: string) => boolean;
+  /** True once the approved claimant has physically collected the item */
+  isItemReturned: (itemId: string) => boolean;
   /** Desk admin approves / rejects a claim */
   reviewClaim: (claim: Claim, status: "Approved" | "Rejected", reviewer: string) => void;
+  /** Desk admin confirms the approved claimant collected the item */
+  markCollected: (claim: Claim) => void;
 };
 
 const ClaimsContext = createContext<ClaimsContextValue | null>(null);
@@ -64,6 +71,21 @@ export function ClaimsProvider({ children }: { children: ReactNode }) {
       });
   }, []);
 
+  // Web: when another browser tab saves claims, reload them here so every open screen stays in sync
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.addEventListener !== "function") return;
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== STORAGE_KEY || e.newValue == null) return;
+      try {
+        setAllClaims(JSON.parse(e.newValue) as Claim[]);
+      } catch (err) {
+        console.warn("Could not sync claims", err);
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+
   useEffect(() => {
     if (!loaded.current) return;
     AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(allClaims)).catch((err) => console.warn("Could not save claims", err));
@@ -75,6 +97,7 @@ export function ClaimsProvider({ children }: { children: ReactNode }) {
     (item: ClaimInput, details: ClaimDetails) => {
       if (!me) return;
       setAllClaims((prev) => {
+        if (prev.some((c) => c.id === item.id && (c.status === "Approved" || c.status === "Collected"))) return prev; // item already released to someone
         if (prev.some((c) => c.id === item.id && c.ownerId === me && c.status !== "Rejected")) return prev; // no duplicates
         const cleaned = prev.filter((c) => !(c.id === item.id && c.ownerId === me)); // replace an old rejected claim
         const next: Claim = {
@@ -101,6 +124,9 @@ export function ClaimsProvider({ children }: { children: ReactNode }) {
   const getClaim = useCallback((itemId: string) => claims.find((c) => c.id === itemId && c.status !== "Rejected"), [claims]);
   const hasClaimed = useCallback((itemId: string) => !!getClaim(itemId), [getClaim]);
 
+  const isItemClosed = useCallback((itemId: string) => allClaims.some((c) => c.id === itemId && (c.status === "Approved" || c.status === "Collected")), [allClaims]);
+  const isItemReturned = useCallback((itemId: string) => allClaims.some((c) => c.id === itemId && c.status === "Collected"), [allClaims]);
+
   const reviewClaim = useCallback((claim: Claim, status: "Approved" | "Rejected", reviewer: string) => {
     const now = Date.now();
     setAllClaims((prev) =>
@@ -114,7 +140,15 @@ export function ClaimsProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
-  const value = useMemo(() => ({ claims, allClaims, addClaim, cancelClaim, getClaim, hasClaimed, reviewClaim }), [claims, allClaims, addClaim, cancelClaim, getClaim, hasClaimed, reviewClaim]);
+  const markCollected = useCallback((claim: Claim) => {
+    const now = Date.now();
+    setAllClaims((prev) => prev.map((c) => (c.id === claim.id && c.ownerId === claim.ownerId && c.status === "Approved" ? { ...c, status: "Collected", collectedAt: now } : c)));
+  }, []);
+
+  const value = useMemo(
+    () => ({ claims, allClaims, addClaim, cancelClaim, getClaim, hasClaimed, isItemClosed, isItemReturned, reviewClaim, markCollected }),
+    [claims, allClaims, addClaim, cancelClaim, getClaim, hasClaimed, isItemClosed, isItemReturned, reviewClaim, markCollected],
+  );
 
   return <ClaimsContext.Provider value={value}>{children}</ClaimsContext.Provider>;
 }
